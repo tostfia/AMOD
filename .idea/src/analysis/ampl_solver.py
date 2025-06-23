@@ -1,18 +1,19 @@
 from amplpy import AMPL
-
+from pathlib import Path
 class UFLSolver:
     def __init__(self):
         self.ampl = AMPL()
 
     def load_instance(self, instance_data):
         """Carica i dati dell'istanza UFL"""
-        self.ampl.read('ufl_model.mod')
+        current_path = Path(__file__).parent.parent.parent
+        self.ampl.read(current_path/"models"/'UFL.mod')
 
         # Imposta i parametri
-        self.ampl.param['n_facilities'] = instance_data['n_facilities']
-        self.ampl.param['n_customers'] = instance_data['n_customers']
-        self.ampl.param['fixed_cost'] = instance_data['fixed_costs']
-        self.ampl.param['assign_cost'] = instance_data['assign_costs']
+        self.ampl.param['I'] = instance_data['num_facilities']
+        self.ampl.param['C'] = instance_data['num_customers']
+        self.ampl.param['setup_cost'] = instance_data['fixed_costs']
+        self.ampl.param['allocation_cost'] = instance_data['assignment_costs']
 
     def solve_linear_relaxation(self):
         """Risolve il rilassamento lineare"""

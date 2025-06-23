@@ -1,5 +1,5 @@
 from ampl_solver import UFLSolver
-from parser import parse_ufl_instance, find_data_directory
+from parser import parse_ufl_instance #find_data_directory
 from pathlib import Path
 import os
 import sys
@@ -26,8 +26,8 @@ def run_single_instance(filename):
     except Exception as e:
         print(f"Errore durante la risoluzione dell'istanza: {str(e)}")
         return False
-def run_all_instances():
-    """Esegue la risoluzione di tutte le istanze nella directory 'data'"""
+"""def run_all_instances():
+    Esegue la risoluzione di tutte le istanze nella directory 'data'
     try:
         data_dir = find_data_directory()
         if not data_dir:
@@ -68,7 +68,7 @@ def run_all_instances():
 
     except Exception as e:
         print(f"Errore durante il processamento delle istanze: {str(e)}")
-        return False
+        return False"""
 def get_instance_path(filename):
     """Costruisce il percorso completo per il file di istanza"""
     current_path = Path(__file__).parent.parent.parent
@@ -119,11 +119,11 @@ def main():
 
             elif choice == '2':
                 print("Avvio risoluzione di tutte le istanze...")
-                success = run_all_instances()
+                """success = run_all_instances()
                 if success:
                     print("\nTutte le istanze sono state processate!")
                 else:
-                    print("\nErrori durante il processamento delle istanze.")
+                    print("\nErrori durante il processamento delle istanze.")"""
 
             elif choice == '3':
                 print("Arrivederci!")
