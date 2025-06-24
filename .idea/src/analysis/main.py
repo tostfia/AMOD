@@ -1,6 +1,7 @@
 from ampl_solver import UFLSolver
 from parser import parse_ufl_instance #find_data_directory
 from pathlib import Path
+
 import os
 import sys
 
@@ -16,13 +17,15 @@ def run_single_instance(filename):
         solver.load_instance(instance_data)
 
         print("Risoluzione del rilassamento lineare...")
-        linear_solution = solver.solve_linear_relaxation()
+        linear_solution = solver.solve_instance(instance_data)
+        opt_solution=solver.load_optimal_solution(filename)
+        compare_with_optimal = solver.compare_with_optimal(filename,instance_data,linear_solution,opt_solution)
         print("Soluzione del rilassamento lineare:", linear_solution)
 
-        print("Risoluzione con Gomory cuts...")
+        """print("Risoluzione con Gomory cuts...")
         gomory_solution = solver.solve_with_gomory()
         print("Soluzione con Gomory cuts:", gomory_solution)
-        return True
+        return True"""
     except Exception as e:
         print(f"Errore durante la risoluzione dell'istanza: {str(e)}")
         return False
