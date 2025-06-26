@@ -1,77 +1,68 @@
 from ampl_solver import UFLSolver
-from parser import parse_ufl_instance #find_data_directory
+from gomory_cut import GomoryCut
+from parser import parse_ufl_instance, parse_ufl_to_model #find_data_directory
 from pathlib import Path
-
+from facilityLocation import FacilityLocationModel
+import glob
 import os
 import sys
 
-def run_single_instance(filename):
-    """Esegue la risoluzione di un'istanza singola"""
+def load_model(filename: str) -> FacilityLocationModel:
+    """Carica il modello da un file."""
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"Errore: il file {filename} non esiste.")
+    print(f"Processando l'istanza: {filename}")
+    return parse_ufl_to_model(filename)
+
+def solve_and_compare(solver: UFLSolver, model: FacilityLocationModel, filename: str) -> None:
+    """Risolvi il modello e confronta con la soluzione ottimale."""
+    linear_solution = solver.solve_instance(model)
+    opt_solution = solver.load_optimal_solution(filename)
+    solver.compare_with_optimal(filename, model, linear_solution, opt_solution)
+    print(f"Soluzione del rilassamento lineare: {linear_solution}")
+    print("\nInformazioni aggiuntive:")
+    print(f"Costo fisso totale se apriamo tutti: {sum(model.get_fixed_costs()):.2f}")
+    print(f"Costo minimo per cliente 0: {model.get_min_assignment_cost(0):.2f}")
+
+def run_single_instance(filename: str) -> bool:
+    """Esegue la risoluzione di un'istanza singola."""
     try:
-        if not os.path.exists(filename):
-           print(f"Errore: il file {filename} non esiste.")
-           return False
-        print(f"Processando l'istanza: {filename}")
-        instance_data = parse_ufl_instance(filename)
+        model = load_model(filename)
+        print(f"Caricato: {model}")
+
         solver = UFLSolver()
-        solver.load_instance(instance_data)
+        solver.load_instance_from_model(model)
 
         print("Risoluzione del rilassamento lineare...")
-        linear_solution = solver.solve_instance(instance_data)
-        opt_solution=solver.load_optimal_solution(filename)
-        compare_with_optimal = solver.compare_with_optimal(filename,instance_data,linear_solution,opt_solution)
-        print("Soluzione del rilassamento lineare:", linear_solution)
-
-        """print("Risoluzione con Gomory cuts...")
-        gomory_solution = solver.solve_with_gomory()
-        print("Soluzione con Gomory cuts:", gomory_solution)
-        return True"""
+        solve_and_compare(solver, model, filename)
+        return True
+    except FileNotFoundError as e:
+        print(str(e))
     except Exception as e:
         print(f"Errore durante la risoluzione dell'istanza: {str(e)}")
-        return False
-"""def run_all_instances():
-    Esegue la risoluzione di tutte le istanze nella directory 'data'
-    try:
-        data_dir = find_data_directory()
-        if not data_dir:
-            print("Directory 'data' non trovata.")
-            return False
+    return False
+def run_all_instances(directory):
+    """Esegue la risoluzione di tutte le istanze in una directory"""
+    for filepath in glob.glob(os.path.join(directory, '*.txt')):
 
-        output_dir = os.path.join(data_dir, "output")
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        all_data = process_all_files(data_dir, output_dir)
-        if not all_data:
-            print("Nessun dato da processare.")
-            return False
+        try:
+            print(f"Processando l'istanza: {filepath}")
+            model = FacilityLocationModel.from_file(filepath)
+            print(f"Caricato: {model}")
 
-        solver = UFLSolver()
-        successful_runs=0
-        total_runs = len(all_data)
+            solver = UFLSolver()
+            solver.load_instance_from_model(model)
+
+            print("Risoluzione del rilassamento lineare...")
+            linear_solution = solver.solve_instance(model)
+            opt_solution = solver.load_optimal_solution(filepath)
+            solver.compare_with_optimal(filepath, model, linear_solution, opt_solution)
+
+            print("Soluzione del rilassamento lineare:", linear_solution)
+        except Exception as e:
+            print(f"Errore durante la risoluzione dell'istanza {filepath}: {str(e)}")
 
 
-        for filename, instance_data in all_data.items():
-            print(f"Processando {filename}...")
-            try:
-                solver.load_instance(instance_data)
-
-                print("Risoluzione del rilassamento lineare...")
-                linear_solution = solver.solve_linear_relaxation()
-                print(f"Soluzione del rilassamento lineare per {filename}:", linear_solution)
-
-                print("Risoluzione con Gomory cuts...")
-                gomory_solution = solver.solve_with_gomory()
-                print(f"Soluzione con Gomory cuts per {filename}:", gomory_solution)
-                successful_runs += 1
-            except Exception as e:
-                print(f"Errore durante la risoluzione di {filename}: {str(e)}")
-                continue
-        print(f"Processamento completato: {successful_runs}/{total_runs} istanze risolte con successo.")
-        return successful_runs>0
-
-    except Exception as e:
-        print(f"Errore durante il processamento delle istanze: {str(e)}")
-        return False"""
 def get_instance_path(filename):
     """Costruisce il percorso completo per il file di istanza"""
     current_path = Path(__file__).parent.parent.parent
@@ -97,8 +88,30 @@ def print_menu():
     print("3. Esci")
     print("="*50)
 
+def process_single_instance():
+    """Gestisce l'opzione per risolvere un'istanza singola."""
+    filename = input("Inserisci il nome del file da processare: ").strip()
+    if not filename:
+        print("Nome file non valido.")
+        return
+
+    instance_path = get_instance_path(filename)
+    print(f"Tentativo di caricamento: {instance_path}")
+
+    success = run_single_instance(instance_path)
+    if success:
+        print("\nIstanza risolta con successo!")
+    else:
+        print("\nErrore nella risoluzione dell'istanza.")
+
+def process_all_instances():
+    """Gestisce l'opzione per risolvere tutte le istanze."""
+    print("Avvio risoluzione di tutte le istanze...")
+    directory = Path(__file__).parent.parent.parent / "data" / "instances" / "or-library"
+    run_all_instances(directory)
+
 def main():
-    """Funzione principale con menu interattivo"""
+    """Funzione principale con menu interattivo."""
     while True:
         print_menu()
 
@@ -106,32 +119,12 @@ def main():
             choice = input("Scegli un'opzione (1-3): ").strip()
 
             if choice == '1':
-                filename = input("Inserisci il nome del file da processare: ").strip()
-                if not filename:
-                    print("Nome file non valido.")
-                    continue
-
-                instance_path = get_instance_path(filename)
-                print(f"Tentativo di caricamento: {instance_path}")
-
-                success = run_single_instance(instance_path)
-                if success:
-                    print("\nIstanza risolta con successo!")
-                else:
-                    print("\nErrore nella risoluzione dell'istanza.")
-
+                process_single_instance()
             elif choice == '2':
-                print("Avvio risoluzione di tutte le istanze...")
-                """success = run_all_instances()
-                if success:
-                    print("\nTutte le istanze sono state processate!")
-                else:
-                    print("\nErrori durante il processamento delle istanze.")"""
-
+                process_all_instances()
             elif choice == '3':
                 print("Arrivederci!")
                 sys.exit(0)
-
             else:
                 print("Opzione non valida. Scegli 1, 2 o 3.")
 

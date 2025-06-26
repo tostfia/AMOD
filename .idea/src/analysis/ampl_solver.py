@@ -1,6 +1,7 @@
 from amplpy import AMPL
 from pathlib import Path
 import pandas as pd
+from facilityLocation import FacilityLocationModel
 class UFLSolver:
     def __init__(self,ampl=None):
         if ampl:
@@ -10,38 +11,29 @@ class UFLSolver:
         else:
             self.ampl = AMPL()
             self.ampl.set_option('solver', 'gurobi')  # Imposta il solver CPLEX come predefinito
-    def load_instance(self, instance_data):
+    def load_instance_from_model(self, model):
         current_path = Path(__file__).parent.parent.parent
         self.ampl.read(current_path / "models" / "UFL2.mod")
-
-        p = instance_data['num_facilities']
-        r = instance_data['num_customers']
+        p = model.get_num_facilities()
+        r = model.get_num_customers()
 
         self.ampl.param['p'] = p
         self.ampl.param['r'] = r
 
 
-        # Validazione preliminare
-        if not instance_data['assignment_costs']:
+        fixed_costs = model.get_fixed_costs()
+        assignment_costs = model.get_assignment_costs()
+
+        # Validazione automatica già fatta dal modello
+        if not assignment_costs:
             raise ValueError("assignment_costs è vuoto")
-        # Trasponi la matrice se servono 16 righe e 50 colonne
-        instance_data['assignment_costs'] = list(map(list, zip(*instance_data['assignment_costs'])))
 
-        p = len(instance_data['fixed_costs'])
-        r = len(instance_data['assignment_costs'][0])
+        # Trasponi se necessario (come nel codice originale)
+        assignment_costs = list(map(list, zip(*assignment_costs)))
 
-        if len(instance_data['assignment_costs']) != p:
-            raise ValueError(f"assignment_costs ha {len(instance_data['assignment_costs'])} righe, ma fixed_costs ha {p} elementi")
-
-        for i, row in enumerate(instance_data['assignment_costs']):
-            if len(row) != r:
-                raise ValueError(f"Riga {i} di assignment_costs ha {len(row)} colonne, attese {r}")
-
-
-
-        setup_dict = {i: c for i, c in enumerate(instance_data['fixed_costs'], start=1)}
+        setup_dict = {i: c for i, c in enumerate(fixed_costs,start=1)}
         allocation_dict = {
-            (i+1, j+1): instance_data['assignment_costs'][i][j]
+            (i+1, j+1): assignment_costs[i][j]
             for i in range(p)
             for j in range(r)
         }
@@ -51,7 +43,7 @@ class UFLSolver:
 
 
 
-    def solve_instance(self,instance_data):
+    def solve_instance(self,model):
         """Risolve il rilassamento lineare"""
         print("Risoluzione del rilassamento lineare...")
         self.ampl.solve()
@@ -92,10 +84,10 @@ class UFLSolver:
 
 
 
-    def compare_with_optimal(self,filename,instance_data, z_lp=None, z_opt=None):
+    def compare_with_optimal(self,filename,model, z_lp=None, z_opt=None):
         """Risolvi rilassamento e confronta con valore ottimo noto"""
         if z_lp is None:
-            z_lp = self.solve_instance(instance_data)
+            z_lp = self.solve_instance(model)
         if z_opt is None:
             z_opt = self.load_optimal_solution(filename)
         print(f"Valore rilassato (LP): {z_lp:.3f}")
@@ -105,45 +97,3 @@ class UFLSolver:
 
 
 
-""" def solve_with_gomory(self, max_iterations=100):
-        Implementa i Gomory cuts
-        iteration = 0
-
-        while iteration < max_iterations:
-            # Risolvi il problema corrente
-            result = self.solve_linear_relaxation()
-
-            # Controlla se la soluzione è intera
-            if self.is_integer_solution(result):
-                return result
-
-            # Aggiungi Gomory cut
-            self.add_gomory_cut(result)
-            iteration += 1
-
-        return result
-
-    def is_integer_solution(self, solution, tolerance=1e-6):
-        Verifica se la soluzione è intera
-        for value in solution['x_values'].values():
-            if abs(value - round(value)) > tolerance:
-                return False
-        return True
-
-    def add_gomory_cut(self, solution):
-        Aggiunge un taglio di Gomory
-        # Trova la variabile più frazionaria
-        max_frac = 0
-        cut_var = None
-
-        for var, value in solution['x_values'].items():
-            frac = min(value - int(value), int(value) + 1 - value)
-            if frac > max_frac:
-                max_frac = frac
-                cut_var = var
-
-        if cut_var:
-            # Aggiungi il taglio (implementazione semplificata)
-            cut_name = f"gomory_cut_{len(self.ampl.getConstraints())}"
-            # Qui dovresti implementare la logica completa del taglio di Gomory
-            pass """
