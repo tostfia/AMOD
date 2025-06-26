@@ -1,1 +1,1 @@
-# AMOD
+Progetto universitario svolto per il corso di studi di algoritmi metodi ottimiziazione discreta, durante l'anno accademico 2024/2025. Si vuole valutare l'efficienza o inefficienza dei tagli di gomory su un PLI di uncapacited facility location.
