@@ -32,9 +32,11 @@ def run_single_instance(filename: str) -> bool:
 
         solver = UFLSolver()
         solver.load_instance_from_model(model)
+        gomory_cut= GomoryCut()
 
         print("Risoluzione del rilassamento lineare...")
         solve_and_compare(solver, model, filename)
+        gomory_cut.solve_with_gomory_cuts(model,linear_solution)
         return True
     except FileNotFoundError as e:
         print(str(e))
@@ -52,11 +54,13 @@ def run_all_instances(directory):
 
             solver = UFLSolver()
             solver.load_instance_from_model(model)
+            gomory_cut=GomoryCut()
 
             print("Risoluzione del rilassamento lineare...")
             linear_solution = solver.solve_instance(model)
             opt_solution = solver.load_optimal_solution(filepath)
             solver.compare_with_optimal(filepath, model, linear_solution, opt_solution)
+            gomory_cut.solve_with_gomory_cuts(model,linear_solution)
 
             print("Soluzione del rilassamento lineare:", linear_solution)
         except Exception as e:
