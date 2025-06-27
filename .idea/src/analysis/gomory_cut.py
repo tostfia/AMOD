@@ -14,317 +14,261 @@ class CutInfo:
 class GomoryCut:
     """Implementazione migliorata dei tagli di Gomory per problemi UFL"""
 
-    def __init__(self, ampl_solver: 'UFLSolver', max_iterations: int = 50, tolerance: float = 1e-6):
+    def __init__(self, ampl_solver: 'UFLSolver' = None, max_iterations: int = 50, tolerance: float = 1e-6):
         self.ampl_solver = ampl_solver
-        self.ampl = ampl_solver.ampl
+        self.ampl = ampl_solver.ampl if ampl_solver else None
         self.cuts_added = []
         self.iteration_history = []
         self.max_iterations = max_iterations
         self.tolerance = tolerance
         self.logger = logging.getLogger(__name__)
 
+    def solve_with_gomory_cuts(self, model: 'FacilityLocationModel', solver: 'UFLSolver'):
+        """Risolve il problema utilizzando i tagli di Gomory"""
+        print("=== RISOLUZIONE CON TAGLI DI GOMORY ===")
+        print(f"Facilities: {model.get_num_facilities()}, Customers: {model.get_num_customers()}")
+        print(f"Costi fissi: {model.get_fixed_costs()}")
+        print()
 
+        # Assegna il solver se non già fatto
+        if self.ampl_solver is None:
+            self.ampl_solver = solver
+            self.ampl = solver.ampl
 
+        current_solution = None
+        best_objective = float('inf')
+        for iteration in range(self.max_iterations):
+            print(f"---- Iterazione {iteration + 1} ----")
 
-    def is_integer_solution(self, solution: Dict[int, float]) -> bool:
-        """Controlla se la soluzione è intera entro la tolleranza"""
-        for value in solution.values():
-            if abs(value - round(value)) > self.tolerance:
-                return False
-        return True
+            # Risolvi il problema corrente
+            try:
+                self.ampl.solve()
+                if self.ampl.getValue("TotalCost") is None:
+                    print("Errore: nessuna soluzione trovata")
+                    break
 
-    def find_most_fractional_variable(self, solution: Dict[str, float]) -> Optional[Tuple[str, float]]:
-        """
-        Trova la variabile con la parte frazionaria più vicina a 0.5
-        Returns: (variable_name, fractional_part) o None se tutte sono intere
-        """
-        max_fractional = 0
-        most_fractional_var = None
+                objective_value = self.ampl.getObjective("TotalCost").value()
+                print(f"Valore funzione obiettivo: {objective_value:.6f}")
 
-        for var_name, value in solution.items():
-            if var_name.startswith('x['):  # Solo variabili di facility
-                fractional_part = abs(value - round(value))
-                if fractional_part > self.tolerance and fractional_part > max_fractional:
-                    max_fractional = fractional_part
-                    most_fractional_var = (var_name, fractional_part)
+                # Estrai le variabili di decisione
+                current_solution = self._extract_solution(model)
 
-        return most_fractional_var
+            except Exception as e:
+                print(f"Errore nella risoluzione: {e}")
+                break
 
-    def generate_gomory_cut(self, solution: Dict[str, float]) -> Optional[CutInfo]:
-        """
-        Genera un taglio di Gomory senza tableau usando metodi alternativi
-        """
-        # Trova la variabile più frazionaria
-        fractional_info = self.find_most_fractional_variable(solution)
-        if not fractional_info:
-            return None
+            # Controlla se la soluzione è intera
+            if self.is_integer_solution(current_solution):
+                print("✓ Soluzione intera trovata!")
+                self._print_solution(current_solution, model, objective_value)
+                return current_solution, objective_value
 
-        var_name, fractional_part = fractional_info
-        var_value = solution[var_name]
+            # Trova la variabile più frazionaria
+            frac_var_info= self.find_most_fractional_variable(current_solution,model)
 
-        # Metodo 1: Taglio frazionario semplice
-        return self._generate_fractional_cut(var_name, var_value, solution)
+            if frac_var_idx is None:
+                print("Nessuna variabile frazionaria trovata, terminazione.")
+                break
 
-    def _generate_fractional_cut(self, var_name: str, var_value: float, solution: Dict[str, float]) -> CutInfo:
-        """
-        Genera un taglio frazionario basato sulla variabile più frazionaria
-        Questo è più efficace dei semplici bound cuts
-        """
-        # Estrai l'indice della facility
-        facility_id = int(var_name.split('[')[1].split(']')[0])
+            var_name, var_value, var_type= frac_var_info
+            print(f"Variabile più frazionaria: {var_name} = {var_value:.6f}")
 
-        # Parte frazionaria della variabile
-        fractional_part = var_value - int(var_value)
+            # Genera e aggiungi il taglio di Gomory
+            success = self._add_gomory_cut(var_name, model, iteration)
 
-        # Genera un taglio che coinvolge variabili correlate
-        cut_coefficients = {}
+            if not success:
+                print("Errore nell'aggiunta del taglio, terminazione.")
+                break
 
-        # Coefficiente per la variabile principale
-        cut_coefficients[var_name] = 1.0
+            # Memorizza l'iterazione
+            self.iteration_history.append({
+                'iteration': iteration + 1,
+                'objective': objective_value,
+                'solution': current_solution.copy(),
+                'fractional_var': frac_var_idx,
+                'fractional_value': var_value
+            })
 
-        # Aggiungi coefficienti per variabili correlate se disponibili
-        # (variabili y che dipendono dalla stessa facility)
-        correlation_factor = 0.3  # Fattore di correlazione
+            print()
 
-        for other_var, other_value in solution.items():
-            if other_var != var_name and other_var.startswith('x['):
-                other_id = int(other_var.split('[')[1].split(']')[0])
+        print("Numero massimo di iterazioni raggiunto senza trovare soluzione intera")
+        if current_solution is not None:
+            self._print_solution(current_solution, model, objective_value)
+        return current_solution, objective_value if current_solution is not None else None
 
-                # Se le facilities sono "vicine" (euristica basata sull'ID)
-                if abs(facility_id - other_id) <= 2 and other_value > self.tolerance:
-                    other_fractional = other_value - int(other_value)
-                    if other_fractional > self.tolerance:
-                        # Coefficiente basato sulla correlazione
-                        coeff = correlation_factor * (other_fractional / fractional_part)
-                        cut_coefficients[other_var] = coeff
+    def _extract_solution(self, model):
+        """Estrae la soluzione corrente dalle variabili AMPL"""
+        solution = []
 
-        # RHS del taglio: parte intera della variabile principale + correzione
-        rhs = int(var_value) + max(0, fractional_part - 0.5)
-
-        return CutInfo(
-            coefficients=cut_coefficients,
-            rhs=rhs,
-            iteration=len(self.cuts_added),
-            fractional_value=fractional_part
-        )
-
-    def _generate_strengthened_cut(self, solution: Dict[str, float]) -> Optional[CutInfo]:
-        """
-        Genera un taglio rafforzato basato su multiple variabili frazionarie
-        """
-        # Trova tutte le variabili frazionarie
-        fractional_vars = []
-
-        for var_name, value in solution.items():
-            if var_name.startswith('x['):
-                fractional_part = abs(value - round(value))
-                if fractional_part > self.tolerance:
-                    fractional_vars.append((var_name, value, fractional_part))
-
-        if len(fractional_vars) < 2:
-            return None
-
-        # Ordina per parte frazionaria decrescente
-        fractional_vars.sort(key=lambda x: x[2], reverse=True)
-
-        # Prendi le prime 3-5 variabili più frazionarie
-        selected_vars = fractional_vars[:min(5, len(fractional_vars))]
-
-        cut_coefficients = {}
-        total_fractional = 0
-
-        for var_name, value, frac_part in selected_vars:
-            # Coefficiente proporzionale alla parte frazionaria
-            coeff = frac_part / sum(v[2] for v in selected_vars)
-            cut_coefficients[var_name] = coeff
-            total_fractional += frac_part * coeff
-
-        # RHS basato sulla combinazione delle parti frazionarie
-        rhs = max(0, total_fractional - 0.5)
-
-        return CutInfo(
-            coefficients=cut_coefficients,
-            rhs=rhs,
-            iteration=len(self.cuts_added),
-            fractional_value=max(v[2] for v in selected_vars)
-        )
-
-    def _generate_simple_cut(self, var_name: str, var_value: float) -> CutInfo:
-        """Genera un taglio semplice quando il tableau non è disponibile"""
-        # Estrai l'indice della variabile
-        facility_id = int(var_name.split('[')[1].split(']')[0])
-
-        # Taglio semplice: x[i] <= floor(current_value)
-        cut_coefficients = {var_name: 1.0}
-        rhs = int(var_value)  # floor del valore corrente
-
-        return CutInfo(
-            coefficients=cut_coefficients,
-            rhs=rhs,
-            iteration=len(self.cuts_added),
-            fractional_value=abs(var_value - round(var_value))
-        )
-
-    def add_gomory_cut(self, cut_info: CutInfo) -> bool:
-        """
-        Aggiungi un taglio di Gomory al modello AMPL
-        """
+        # Estrai variabili y (facilities)
         try:
-            # Costruisci l'espressione del taglio
-            cut_expr = " + ".join([
-                f"{coeff} * {var}" for var, coeff in cut_info.coefficients.items()
-            ])
+            x_values = self.ampl.getVariable("x").getValues()
+            y_values = self.ampl.getVariable("y").getValues()
 
-            # Nome del vincolo
-            constraint_name = f"gomory_cut_{cut_info.iteration}"
+            # Crea dizionari per accesso rapido
+            x_dict = {}  # x[u] - facility u è aperta
+            y_dict = {}  # y[u,v] - cliente v servito da facility u
 
-            # Aggiungi il vincolo ad AMPL
-            constraint_def = f"subject to {constraint_name}: {cut_expr} <= {cut_info.rhs};"
-            self.ampl.eval(constraint_def)
+            # Processa variabili x (facilities)
+            for row in x_values.toPandas().itertuples():
+                facility_idx = int(row.index0)  # Indice facility (base 1 in AMPL)
+                value = float(row.x)
+                x_dict[facility_idx] = value
 
-            # Salva informazioni sul taglio
-            self.cuts_added.append(cut_info)
+            # Processa variabili y (assegnazioni)
+            for row in y_values.toPandas().itertuples():
+                facility_idx = int(row.index0)  # Facility index
+                customer_idx = int(row.index1)  # Customer index
+                value = float(row.y)
+                y_dict[(facility_idx, customer_idx)] = value
 
-            self.logger.info(f"Aggiunto taglio {constraint_name}: {cut_expr} <= {cut_info.rhs}")
+            return x_dict, y_dict
+
+        except Exception as e:
+            print(f"Errore nell'estrazione della soluzione: {e}")
+            return {}, {}
+
+    def is_integer_solution(self, solution):
+        """Verifica se la soluzione è intera"""
+        if isinstance(solution, tuple):
+            x_dict, y_dict = solution
+
+            # Controlla variabili x
+            for value in x_dict.values():
+                if abs(value - round(value)) > self.tolerance:
+                    return False
+
+            # Controlla variabili y
+            for value in y_dict.values():
+                if abs(value - round(value)) > self.tolerance:
+                    return False
+
+            return True
+        return False
+    def find_most_fractional_variable(self, solution,model):
+        """Trova la variabile con maggiore distanza da 0 o 1 - versione dettagliata"""
+        if not isinstance(solution, tuple):
+            return None
+
+        x_dict, y_dict = solution
+        max_fractional = 0
+        best_var = None
+
+        # Controlla variabili x (facilities)
+        for facility_idx, value in x_dict.items():
+            fractional_part = min(value - np.floor(value), np.ceil(value) - value)
+            if fractional_part > max_fractional and fractional_part > self.tolerance:
+                max_fractional = fractional_part
+                best_var = (f"x[{facility_idx}]", value, "facility")
+
+        # Controlla variabili y (assegnazioni)
+        for (facility_idx, customer_idx), value in y_dict.items():
+            fractional_part = min(value - np.floor(value), np.ceil(value) - value)
+            if fractional_part > max_fractional and fractional_part > self.tolerance:
+                max_fractional = fractional_part
+                best_var = (f"y[{facility_idx},{customer_idx}]", value, "assignment")
+
+        return best_var
+
+    def _add_gomory_cut(self,var_name, var_value, model, iteration):
+        """Aggiunge un taglio di Gomory direttamente al modello AMPL"""
+        try:
+            cut_name = f"gomory_cut_{iteration+1}"
+            # Calcola la parte frazionaria
+            fractional_part = var_value - np.floor(var_value)
+
+            # Taglio di Gomory classico per variabili binarie/intere
+            # Se x è frazionaria con valore f, aggiungi: x <= floor(f) oppure x >= ceil(f)
+
+            if fractional_part < 0.5:
+                # Forza verso il basso
+                rhs = np.floor(var_value)
+                constraint = f"subject to {cut_name}: {var_name} <= {rhs};"
+                print(f"Taglio aggiunto: {var_name} <= {rhs}")
+            else:
+                # Forza verso l'alto
+                rhs = np.ceil(var_value)
+                constraint = f"subject to {cut_name}: {var_name} >= {rhs};"
+                print(f"Taglio aggiunto: {var_name} >= {rhs}")
+
+            # Aggiungi il vincolo al modello AMPL
+            self.ampl.eval(constraint)
+
+            # Memorizza il taglio
+            self.cuts_added.append({
+                'name': cut_name,
+                'constraint': constraint,
+                'variable': var_name,
+                'value': var_value,
+                'fractional_part': fractional_part,
+                'iteration': iteration + 1
+            })
+
             return True
 
         except Exception as e:
-            self.logger.error(f"Errore nell'aggiunta del taglio: {e}")
+            print(f"Errore nell'aggiunta del taglio: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
-    def solve_with_gomory_cuts(self, model: 'FacilityLocationModel', cut_strategy: str = 'fractional') -> Tuple[float, Dict[int, float], int]:
-        """
-        Risolvi il problema utilizzando i tagli di Gomory
-        cut_strategy: 'simple', 'fractional', 'strengthened', 'mixed'
-        Returns: (objective_value, integer_solution, iterations)
-        """
-        self.cuts_added = []
-        self.iteration_history = []
 
-        for iteration in range(self.max_iterations):
-            # Risolvi il rilassamento lineare
-            obj_value, is_feasible = self.solve_linear_relaxation(model)
+    def _print_solution(self, solution, model, objective_value):
+        """Stampa la soluzione in formato leggibile"""
+        if not isinstance(solution, tuple):
+            print("Errore: formato soluzione non valido")
+            return
 
-            if not is_feasible:
-                self.logger.error(f"Problema infeasible all'iterazione {iteration}")
-                return float('inf'), {}, iteration
+        x_dict, y_dict = solution
 
-            # Ottieni la soluzione
-            full_solution = self.get_optimal_solution()
-            facility_solution = self.get_facility_solution()
+        print("\n=== SOLUZIONE FINALE ===")
+        print(f"Valore obiettivo: {objective_value:.6f}")
 
-            # Salva la storia
-            self.iteration_history.append({
-                'iteration': iteration,
-                'objective': obj_value,
-                'integer': self.is_integer_solution(facility_solution),
-                'num_fractional': sum(1 for v in facility_solution.values()
-                                      if abs(v - round(v)) > self.tolerance)
-            })
+        # Facilities aperte
+        print("\nFacilities aperte:")
+        total_fixed_cost = 0
+        for facility_idx, value in x_dict.items():
+            if value > 0.5:
+                # Nota: gli indici in AMPL partono da 1, ma i costi potrebbero partire da 0
+                cost_idx = facility_idx - 1 if facility_idx > 0 else 0
+                if cost_idx < len(model.get_fixed_costs()):
+                    cost = model.get_fixed_costs()[cost_idx]
+                    total_fixed_cost += cost
+                    print(f"  Facility {facility_idx}: x[{facility_idx}] = {value:.0f} (costo fisso: {cost})")
 
-            self.logger.info(f"Iterazione {iteration}: Obiettivo = {obj_value:.4f}, "
-                             f"Variabili frazionarie = {self.iteration_history[-1]['num_fractional']}")
+        # Assegnazioni clienti
+        print("\nAssegnazioni clienti:")
+        total_assignment_cost = 0
+        for (facility_idx, customer_idx), value in y_dict.items():
+            if value > 0.5:
+                try:
+                    # Converti indici AMPL (base 1) a indici Python (base 0)
+                    cost = model.get_assignment_cost(customer_idx - 1, facility_idx - 1)
+                    total_assignment_cost += cost
+                    print(f"  Cliente {customer_idx} → Facility {facility_idx}: y[{facility_idx},{customer_idx}] = {value:.0f} (costo: {cost})")
+                except:
+                    print(f"  Cliente {customer_idx} → Facility {facility_idx}: y[{facility_idx},{customer_idx}] = {value:.0f}")
 
-            # Controlla se la soluzione è intera
-            if self.is_integer_solution(facility_solution):
-                self.logger.info(f"Soluzione intera trovata dopo {iteration} iterazioni")
-                return obj_value, facility_solution, iteration
-
-            # Genera tagli basati sulla strategia scelta
-            cuts_generated = self._generate_cuts_by_strategy(full_solution, cut_strategy)
-
-            if not cuts_generated:
-                self.logger.warning("Impossibile generare ulteriori tagli")
-                break
-
-            # Aggiungi i tagli generati
-            cuts_added = 0
-            for cut_info in cuts_generated:
-                if self.add_gomory_cut(cut_info):
-                    cuts_added += 1
-
-            if cuts_added == 0:
-                self.logger.error("Errore nell'aggiunta dei tagli")
-                break
-
-            self.logger.info(f"Aggiunti {cuts_added} tagli")
-
-        # Se non abbiamo trovato una soluzione intera
-        self.logger.warning(f"Raggiunto limite di iterazioni ({self.max_iterations})")
-        facility_solution = self.get_facility_solution()
-        return obj_value, facility_solution, self.max_iterations
-
-    def _generate_cuts_by_strategy(self, solution: Dict[str, float], strategy: str) -> List[CutInfo]:
-        """Genera tagli basati sulla strategia specificata"""
-        cuts = []
-
-        if strategy == 'simple':
-            # Genera un taglio semplice
-            cut = self._generate_simple_cut_from_solution(solution)
-            if cut:
-                cuts.append(cut)
-
-        elif strategy == 'fractional':
-            # Genera un taglio frazionario
-            cut = self.generate_gomory_cut(solution)
-            if cut:
-                cuts.append(cut)
-
-        elif strategy == 'strengthened':
-            # Genera un taglio rafforzato
-            cut = self._generate_strengthened_cut(solution)
-            if cut:
-                cuts.append(cut)
-
-        elif strategy == 'mixed':
-            # Combina diverse strategie
-            # Prima prova taglio rafforzato
-            cut = self._generate_strengthened_cut(solution)
-            if cut:
-                cuts.append(cut)
-            else:
-                # Fallback a taglio frazionario
-                cut = self.generate_gomory_cut(solution)
-                if cut:
-                    cuts.append(cut)
-
-        return cuts
-
-    def _generate_simple_cut_from_solution(self, solution: Dict[str, float]) -> Optional[CutInfo]:
-        """Genera un taglio semplice dalla soluzione corrente"""
-        fractional_info = self.find_most_fractional_variable(solution)
-        if not fractional_info:
-            return None
-
-        var_name, fractional_part = fractional_info
-        var_value = solution[var_name]
-
-        return self._generate_simple_cut(var_name, var_value)
-
-    def get_statistics(self) -> Dict:
-        """Ottieni statistiche sull'esecuzione"""
+        print(f"\nCosto fisso totale: {total_fixed_cost}")
+        print(f"Costo assegnazione totale: {total_assignment_cost}")
+        print(f"Costo totale: {total_fixed_cost + total_assignment_cost}")
+    def get_statistics(self):
+        """Restituisce statistiche sui tagli aggiunti"""
         return {
             'total_cuts': len(self.cuts_added),
-            'iterations': len(self.iteration_history),
-            'final_objective': self.iteration_history[-1]['objective'] if self.iteration_history else None,
-            'integer_found': self.iteration_history[-1]['integer'] if self.iteration_history else False,
-            'cuts_info': [
-                {
-                    'iteration': cut.iteration,
-                    'fractional_value': cut.fractional_value,
-                    'rhs': cut.rhs
-                } for cut in self.cuts_added
-            ]
+            'total_iterations': len(self.iteration_history),
+            'cuts_info': self.cuts_added,
+            'iteration_history': self.iteration_history
         }
-
     def reset(self):
-        """Reset dello stato del solver"""
-        self.cuts_added = []
-        self.iteration_history = []
+        """Reset dello stato per una nuova esecuzione"""
+        # IMPORTANTE: Rimuovi i tagli precedenti dal modello AMPL
+        for cut in self.cuts_added:
+            try:
+                self.ampl.eval(f"drop {cut['name']};")
+            except:
+                pass  # Il vincolo potrebbe non esistere
 
-        # Rimuovi i tagli dal modello AMPL
-        try:
-            for i in range(len(self.cuts_added)):
-                self.ampl.eval(f"drop gomory_cut_{i};")
-        except:
-            pass
+        self.cuts_added.clear()
+        self.iteration_history.clear()
+        print("Stato Gomory reset - tagli precedenti rimossi")
