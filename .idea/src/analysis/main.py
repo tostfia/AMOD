@@ -1,8 +1,10 @@
 from ampl_solver import UFLSolver
 from gomory_cut import GomoryCut
-from parser import parse_ufl_instance, parse_ufl_to_model #find_data_directory
-from pathlib import Path
+from parser import *
 from facilityLocation import FacilityLocationModel
+from utils import generateInstance
+from pathlib import Path
+from config import *
 import glob
 import os
 import sys
@@ -22,7 +24,6 @@ def run_single_instance(filename: str) -> bool:
 
         solver = UFLSolver()
         solver.load_instance_from_model(model)
-        gomory_cut= GomoryCut()
 
         # Carica e confronta con soluzione ottima se disponibile
         try:
@@ -35,19 +36,11 @@ def run_single_instance(filename: str) -> bool:
         print("\n" + "="*60)
 
         # Applica i tagli di Gomory
-        gomory_solver = GomoryCut(ampl_solver=solver, max_iterations=20)
-        final_solution, final_objective = gomory_solver.solve_with_gomory_cuts(model, solver)
+        gomory_solver = GomoryCut(n_facilities=model.num_facilities, n_customers=model.num_customers,
+                                  fixed_cost=model.fixed_costs, allocation_cost=model.assignment_costs)
+        gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
 
         # Stampa statistiche finali
-        stats = gomory_solver.get_statistics()
-        print(f"\n=== STATISTICHE GOMORY CUTS ===")
-        print(f"Iterazioni totali: {stats['total_iterations']}")
-        print(f"Tagli aggiunti: {stats['total_cuts']}")
-
-        if stats['total_cuts'] > 0:
-            print("Dettaglio tagli:")
-            for i, cut in enumerate(stats['cuts_info']):
-                print(f"  {i+1}. {cut['constraint'].replace('con ', '').replace(':', '')}")
 
         return True
 
@@ -91,13 +84,12 @@ def run_all_instances(directory):
             print("\n" + "="*60)
 
             # Applica i tagli di Gomory
-            gomory_solver = GomoryCut(ampl_solver=solver, max_iterations=15)
-            final_solution, final_objective = gomory_solver.solve_with_gomory_cuts(model, solver)
+            gomory_solver = GomoryCut(n_facilities=model.num_facilities, n_customers=model.num_customers,
+                                      fixed_cost=model.fixed_costs, allocation_cost=model.assignment_costs)
+            gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
 
             # Stampa statistiche
-            stats = gomory_solver.get_statistics()
-            print(f"\n=== STATISTICHE ISTANZA {os.path.basename(filepath)} ===")
-            print(f"Iterazioni: {stats['total_iterations']}, Tagli: {stats['total_cuts']}")
+
 
             success_count += 1
 
@@ -108,21 +100,7 @@ def run_all_instances(directory):
     print(f"RIEPILOGO: {success_count}/{total_count} istanze risolte con successo")
     print('='*80)
 
-def get_instance_path(filename):
-    """Costruisce il percorso completo per il file di istanza"""
-    current_path = Path(__file__).parent.parent.parent
 
-    # Gestisce diversi formati di input
-    if not filename.startswith('/') and not filename.startswith('\\'):
-        # Se non è un percorso assoluto, costruisce il percorso relativo
-        if not filename.startswith('data'):
-            instance_path = current_path/ "data" / "instances" / "or-library" / filename
-        else:
-            instance_path = current_path / filename
-    else:
-        instance_path = Path(filename)
-
-    return str(instance_path)
 def print_menu():
     """Stampa il menu delle opzioni"""
     print("\n" + "="*60)
@@ -130,7 +108,8 @@ def print_menu():
     print("="*60)
     print("1. Risolvi istanza singola")
     print("2. Risolvi tutte le istanze")
-    print("3. Esci")
+    print("3. Genera istanza casuale e risolvi con tagli di Gomory")
+    print("4. Esci")
     print("="*60)
 
 def process_single_instance():
@@ -139,10 +118,11 @@ def process_single_instance():
     if not filename:
         print("Nome file non valido.")
         return
-
-    instance_path = get_instance_path(filename)
-    print(f"Tentativo di caricamento: {instance_path}")
-
+    if filename.startswith('cap'):
+        instance_path = DATA_DIR/  "or-library" / filename
+        print(f"Tentativo di caricamento: {instance_path}")
+    else:
+        instance_path= DATA_DIR/ "random"/filename
     success = run_single_instance(instance_path)
     if success:
         print("\nIstanza risolta con successo!")
@@ -152,7 +132,7 @@ def process_single_instance():
 def process_all_instances():
     """Gestisce l'opzione per risolvere tutte le istanze."""
     print("Avvio risoluzione di tutte le istanze...")
-    directory = Path(__file__).parent.parent.parent / "data" / "instances" / "or-library"
+    directory = DATA_DIR / "or-library"
 
     if not directory.exists():
         print(f"Errore: directory {directory} non trovata")
@@ -166,15 +146,32 @@ def main():
         print_menu()
 
         try:
-            choice = input("Scegli un'opzione (1-3): ").strip()
+            choice = input("Scegli un'opzione (1-4): ").strip()
 
             if choice == '1':
                 process_single_instance()
             elif choice == '2':
                 process_all_instances()
             elif choice == '3':
-                print("Arrivederci!")
-                sys.exit(0)
+                try:
+                    user = input("Inserisci il numero dell'istanza da generare, il numero di facilities e il numero di clienti (es: 1 10 50): ").strip()
+                    instance_id, num_facilities, num_customers = map(int, user.split())
+
+                    model = generateInstance(instance_id, num_facilities, num_customers)
+                    print(f"Istanza generata: {model}")
+                    fixed_costs = model.get_fixed_costs()
+                    assignment_costs = model.get_assignment_costs()
+                    gomory = GomoryCut(num_facilities, num_customers, fixed_costs, assignment_costs)
+                    gomory.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
+
+                except ValueError:
+                    print("Errore: assicurati di inserire tre numeri separati da spazio.")
+                except Exception as e:
+                    print(f"Errore inaspettato: {e}")
+
+            elif choice == '4':
+                    print("Uscita dal programma. Arrivederci!")
+                    sys.exit(0)
             else:
                 print("Opzione non valida. Scegli 1, 2 o 3.")
 

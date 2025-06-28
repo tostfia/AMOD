@@ -3,7 +3,7 @@ from pathlib import Path
 
 # Percorsi base
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = PROJECT_ROOT / "data" / "instances"
 RESULTS_DIR = PROJECT_ROOT / "results"
 CONFIG_DIR = PROJECT_ROOT / "config"
 
@@ -16,4 +16,5 @@ SOLVER_CONFIGS = {
 
 # Parametri esperimenti
 DEFAULT_TIME_LIMIT = 3600  # secondi
-DEFAULT_GAP_TOLERANCE = 0.01
+TOLERANCE = 0.01
+MAX_ITERATIONS = 20
