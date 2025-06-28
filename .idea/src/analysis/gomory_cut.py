@@ -60,7 +60,7 @@ class GomoryCut:
                 return False, float('inf'), {}
 
             # Estrai la soluzione
-            obj_value = self.ampl.obj['Total_cost'].value()
+            obj_value = solver.solve_instance(model)
 
             solution = {}
 
