@@ -13,12 +13,12 @@ class UFLSolver:
             self.ampl.set_option('solver', 'gurobi')  # Imposta il solver GUROBI come predefinito
     def load_instance_from_model(self, model):
         current_path = Path(__file__).parent.parent.parent
-        self.ampl.read(current_path / "models" / "UFL2.mod")
-        p = model.get_num_facilities()
-        r = model.get_num_customers()
+        self.ampl.read(current_path / "models" / "UFL.mod")
+        I = model.get_num_facilities()
+        C = model.get_num_customers()
 
-        self.ampl.param['p'] = p
-        self.ampl.param['r'] = r
+        self.ampl.param['I'] = I
+        self.ampl.param['C'] = C
 
 
         fixed_costs = model.get_fixed_costs()
@@ -34,12 +34,12 @@ class UFLSolver:
         setup_dict = {i: c for i, c in enumerate(fixed_costs,start=1)}
         allocation_dict = {
             (i+1, j+1): assignment_costs[i][j]
-            for i in range(p)
-            for j in range(r)
+            for i in range(I)
+            for j in range(C)
         }
 
-        self.ampl.param['setup'].setValues(setup_dict)
-        self.ampl.param['allocation'].setValues(allocation_dict)
+        self.ampl.param['setup_cost'].setValues(setup_dict)
+        self.ampl.param['allocation_cost'].setValues(allocation_dict)
 
 
 
@@ -49,8 +49,8 @@ class UFLSolver:
         print("Risoluzione del rilassamento lineare...")
         self.ampl.solve()
         print("Soluzione trovata.")
-        if self.ampl.getValue("TotalCost") is not None:
-            total_cost= self.ampl.getObjective("TotalCost").value()
+        if self.ampl.getValue("costi_totali") is not None:
+            total_cost= self.ampl.getObjective("costi_totali").value()
             x_values = self.ampl.getVariable("x").getValues()
             actived_facilities=[int(row[0]) for row in x_values if row[1] > 0.5]
             print(f"Valore obiettivo: {total_cost:.3f}")

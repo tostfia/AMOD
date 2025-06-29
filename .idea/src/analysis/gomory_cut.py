@@ -93,13 +93,35 @@ class GomoryCut:
 
     def _setup_model_with_solver(self):
         """Setup del modello utilizzando UFLSolver"""
-        try:
-            # Carica il modello utilizzando UFLSolver
-            self.solver.load_instance_from_model(self.model)
-            print("Modello UFL caricato con successo tramite UFLSolver")
-        except Exception as e:
-            print(f"Errore nel setup del modello con UFLSolver: {e}")
-            raise
+
+        current_path = Path(__file__).parent.parent.parent
+        self.ampl.read(current_path / "models" / "UFL2.mod")
+        p = model.get_num_facilities()
+        r = model.get_num_customers()
+
+        self.ampl.param['p'] = p
+        self.ampl.param['r'] = r
+
+
+        fixed_costs = model.get_fixed_costs()
+        assignment_costs = model.get_assignment_costs()
+
+        # Validazione corretta per liste/array
+        if len(assignment_costs) == 0:
+            raise ValueError("assignment_costs è vuoto")
+
+        # Trasponi se necessario (come nel codice originale)
+        assignment_costs = list(map(list, zip(*assignment_costs)))
+
+        setup_dict = {i: c for i, c in enumerate(fixed_costs,start=1)}
+        allocation_dict = {
+            (i+1, j+1): assignment_costs[i][j]
+            for i in range(p)
+            for j in range(r)
+        }
+
+        self.ampl.param['setup'].setValues(setup_dict)
+        self.ampl.param['allocation'].setValues(allocation_dict)
 
     def _solve_lp_relaxation(self) -> Tuple[bool, float, Dict]:
         """Risolve il rilassamento lineare del problema usando UFLSolver"""

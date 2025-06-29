@@ -1,4 +1,4 @@
-from ampl_solver import UFLSolver
+from ampl_solver import *
 from gomory_cut import GomoryCut
 from plot_gomory_efficiency import *
 from parser import *
@@ -22,10 +22,12 @@ def run_single_instance(filename: str) -> bool:
     try:
         model = load_model(filename)
         print(f"Caricato: {model}")
+        solver=UFLSolver()
 
 
         # Carica e confronta con soluzione ottima se disponibile
-
+        solver.load_instance_from_model(model)
+        solver.solve_instance()
 
 
 
