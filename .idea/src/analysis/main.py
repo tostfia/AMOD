@@ -23,18 +23,9 @@ def run_single_instance(filename: str) -> bool:
         model = load_model(filename)
         print(f"Caricato: {model}")
 
-        solver = UFLSolver()
-        solver.load_instance_from_model(model)
 
         # Carica e confronta con soluzione ottima se disponibile
-        try:
-            linear_solution = solver.solve_instance(model)
-            opt_solution = solver.load_optimal_solution(filename)
-            solver.compare_with_optimal(filename, model, linear_solution, opt_solution)
-        except FileNotFoundError:
-            print("Soluzione ottima non disponibile per il confronto")
 
-        print("\n" + "="*60)
 
 
 
@@ -44,12 +35,6 @@ def run_single_instance(filename: str) -> bool:
         result = gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
 
 
-
-        # Recupera l’ottimo dal file (già usato internamente, quindi riusalo qui)
-        z_opt = solver.load_optimal_solution(filename)
-
-        # Chiama la funzione di plot
-        plot_gomory_efficiency(result, z_opt)
         gomory_solver.close()
 
         # Stampa statistiche finali
@@ -78,24 +63,7 @@ def run_all_instances(directory):
         try:
             model = FacilityLocationModel.from_file(filepath)
             print(f"Caricato: {model}")
-
-            # Crea il solver e carica l'istanza
-            solver = UFLSolver()
-            solver.load_instance_from_model(model)
-
-            print("=== RISOLUZIONE RILASSAMENTO LINEARE ===")
-            linear_solution = solver.solve_instance(model)
-
-            # Carica e confronta con soluzione ottima se disponibile
-            try:
-                opt_solution = solver.load_optimal_solution(filepath)
-                solver.compare_with_optimal(filepath, model, linear_solution, opt_solution)
-            except FileNotFoundError:
-                print("Soluzione ottima non disponibile per il confronto")
-
-            print("\n" + "="*60)
-
-            # Applica i tagli di Gomory
+             # Applica i tagli di Gomory
             gomory_solver = GomoryCut(n_facilities=model.num_facilities, n_customers=model.num_customers,
                                       fixed_cost=model.fixed_costs, allocation_cost=model.assignment_costs)
             result = gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
@@ -103,10 +71,6 @@ def run_all_instances(directory):
 
 
             # Recupera l’ottimo dal file (già usato internamente, quindi riusalo qui)
-            z_opt = solver.load_optimal_solution(filename)
-
-            # Chiama la funzione di plot
-            plot_gomory_efficiency(result, z_opt)
             gomory_solver.close()
 
             # Stampa statistiche

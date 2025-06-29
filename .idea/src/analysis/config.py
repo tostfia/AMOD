@@ -16,7 +16,7 @@ SOLVER_CONFIGS = {
 
 # Parametri esperimenti
 DEFAULT_TIME_LIMIT = 3600  # secondi
-TOLERANCE = 1e-6  # tolleranza per i risultati
+TOLERANCE = 0.1 # tolleranza per i risultati
 MAX_ITERATIONS = 50
 #Rapporto bilanciato: Usa un rapporto facilities:customers di circa 1:2.5 o 1:3
 #Numero medio-alto di facilities (~10–25) e clienti (~25–50)

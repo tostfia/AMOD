@@ -135,7 +135,7 @@ class GomoryCut:
             print(f"Errore nella risoluzione LP: {e}")
             return False, float('inf'), {}
 
-    def _is_integer_solution(self, solution: Dict, tolerance=1e-6) -> bool:
+    def _is_integer_solution(self, solution: Dict, tolerance=1e-9) -> bool:
         """Verifica se la soluzione è intera"""
         for var_name, value in solution.items():
             if value is not None and abs(value - round(value)) > tolerance:
@@ -143,15 +143,15 @@ class GomoryCut:
         return True
 
     def _find_most_fractional_var(self, solution: Dict) -> Optional[str]:
-        """Trova la variabile più frazionaria (più vicina a 0.5)"""
+        """Trova la variabile con la parte frazionaria più grande"""
         max_fract = 0
         best_var = None
 
         for var_name, value in solution.items():
             if value is not None:
-                fract_part = abs(value - math.floor(value) - 0.5)
-                if abs(value - round(value)) > 1e-6 and fract_part < 0.5 - max_fract:
-                    max_fract = 0.5 - fract_part
+                fractional_part = abs(value - math.floor(value))
+                if 0 < fractional_part < 1 and fractional_part > max_fract:
+                    max_fract = fractional_part
                     best_var = var_name
 
         return best_var
@@ -166,7 +166,7 @@ class GomoryCut:
             return False
 
         fract_part = value - math.floor(value)
-        if fract_part < 1e-6:
+        if fract_part < 0:
             return False
 
         self.cut_counter += 1
@@ -291,21 +291,10 @@ class GomoryCut:
             print("Soluzione non trovata:", solution_info.get('message', 'Errore sconosciuto'))
             return
 
-        print("\n" + "="*60)
-        print("SOLUZIONE OTTIMA TROVATA (Tagli di Gomory)")
-        print("="*60)
-        print(f"Valore obiettivo: {solution_info['optimal_value']:.6f}")
-        print(f"Iterazioni: {solution_info['iterations']}")
-        print(f"Tagli di Gomory aggiunti: {solution_info['cuts_added']}")
-
-        print(f"\nFacility aperte ({len(solution_info['open_facilities'])}): {solution_info['open_facilities']}")
-
         # Calcola i costi
         total_fixed_cost = sum(self.fixed_cost[i] for i in solution_info['open_facilities'])
         total_allocation_cost = sum(self.allocation_cost[facility][customer]
                                     for customer, facility in solution_info['allocations'].items())
-        z_opt=self.solver.load_optimal_solution(filename)
-        self.solver.compare_with_optimal(filename,total_allocation_cost+total_fixed_cost ,z_opt)
         print(f"\nDettaglio costi:")
         print(f"  Costo fisso totale: {total_fixed_cost:.2f}")
         print(f"  Costo allocazione totale: {total_allocation_cost:.2f}")

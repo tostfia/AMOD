@@ -85,14 +85,5 @@ class UFLSolver:
 
 
 
-    def compare_with_optimal(self,filename, z_lp, z_opt=None):
-        """confronta con valore ottimo noto"""
-        if z_opt is None:
-            z_opt = self.load_optimal_solution(filename)
-        print(f"Valore calcolato: {z_lp:.3f}")
-        print(f"Valore ottimo noto   : {z_opt:.3f}")
-        print(f"Gap assoluto         : {abs(z_opt - z_lp):.3f}")
-        print(f"Gap relativo (%)     : {100 * (z_opt - z_lp) / z_opt:.2f}%")
-
 
 
