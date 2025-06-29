@@ -10,7 +10,7 @@ class UFLSolver:
             self.ampl = AMPL(ampl_env)
         else:
             self.ampl = AMPL()
-            self.ampl.set_option('solver', 'gurobi')  # Imposta il solver CPLEX come predefinito
+            self.ampl.set_option('solver', 'gurobi')  # Imposta il solver GUROBI come predefinito
     def load_instance_from_model(self, model):
         current_path = Path(__file__).parent.parent.parent
         self.ampl.read(current_path / "models" / "UFL2.mod")
@@ -24,8 +24,8 @@ class UFLSolver:
         fixed_costs = model.get_fixed_costs()
         assignment_costs = model.get_assignment_costs()
 
-        # Validazione automatica già fatta dal modello
-        if not assignment_costs:
+        # Validazione corretta per liste/array
+        if len(assignment_costs) == 0:
             raise ValueError("assignment_costs è vuoto")
 
         # Trasponi se necessario (come nel codice originale)
@@ -44,7 +44,7 @@ class UFLSolver:
 
 
 
-    def solve_instance(self,model):
+    def solve_instance(self):
         """Risolve il rilassamento lineare"""
         print("Risoluzione del rilassamento lineare...")
         self.ampl.solve()
@@ -68,15 +68,15 @@ class UFLSolver:
         """Carica la soluzione ottimale da un file"""
         current_path = Path(__file__).parent.parent.parent
         opt_file_path = current_path / "data" / "opt_values" / "uncapopt.txt"
-        Name=Path(filename).name
+        name=Path(filename).name
         with open(opt_file_path, 'r') as file:
             next(file)  # Salta l'intestazione
 
             for line in file:
                 parts = line.strip().split()
-                if len(parts) == 2 and parts[0] == Name.replace(".txt",""):
+                if len(parts) == 2 and parts[0] == name.replace(".txt",""):
                     try:
-                        return float(parts[1])
+                        return parts[1]
                     except ValueError:
                         raise ValueError(f"Valore non valido per {filename}: {parts[1]}")
 
@@ -85,13 +85,11 @@ class UFLSolver:
 
 
 
-    def compare_with_optimal(self,filename,model, z_lp=None, z_opt=None):
-        """Risolvi rilassamento e confronta con valore ottimo noto"""
-        if z_lp is None:
-            z_lp = self.solve_instance(model)
+    def compare_with_optimal(self,filename, z_lp, z_opt=None):
+        """confronta con valore ottimo noto"""
         if z_opt is None:
             z_opt = self.load_optimal_solution(filename)
-        print(f"Valore rilassato (LP): {z_lp:.3f}")
+        print(f"Valore calcolato: {z_lp:.3f}")
         print(f"Valore ottimo noto   : {z_opt:.3f}")
         print(f"Gap assoluto         : {abs(z_opt - z_lp):.3f}")
         print(f"Gap relativo (%)     : {100 * (z_opt - z_lp) / z_opt:.2f}%")

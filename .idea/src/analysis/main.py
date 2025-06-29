@@ -1,5 +1,6 @@
 from ampl_solver import UFLSolver
 from gomory_cut import GomoryCut
+from plot_gomory_efficiency import *
 from parser import *
 from facilityLocation import FacilityLocationModel
 from utils import generateInstance
@@ -35,10 +36,21 @@ def run_single_instance(filename: str) -> bool:
 
         print("\n" + "="*60)
 
+
+
         # Applica i tagli di Gomory
         gomory_solver = GomoryCut(n_facilities=model.num_facilities, n_customers=model.num_customers,
                                   fixed_cost=model.fixed_costs, allocation_cost=model.assignment_costs)
-        gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
+        result = gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
+
+
+
+        # Recupera l’ottimo dal file (già usato internamente, quindi riusalo qui)
+        z_opt = solver.load_optimal_solution(filename)
+
+        # Chiama la funzione di plot
+        plot_gomory_efficiency(result, z_opt)
+        gomory_solver.close()
 
         # Stampa statistiche finali
 
@@ -86,7 +98,16 @@ def run_all_instances(directory):
             # Applica i tagli di Gomory
             gomory_solver = GomoryCut(n_facilities=model.num_facilities, n_customers=model.num_customers,
                                       fixed_cost=model.fixed_costs, allocation_cost=model.assignment_costs)
-            gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
+            result = gomory_solver.solve_with_gomory_cuts(MAX_ITERATIONS, TOLERANCE)
+
+
+
+            # Recupera l’ottimo dal file (già usato internamente, quindi riusalo qui)
+            z_opt = solver.load_optimal_solution(filename)
+
+            # Chiama la funzione di plot
+            plot_gomory_efficiency(result, z_opt)
+            gomory_solver.close()
 
             # Stampa statistiche
 
