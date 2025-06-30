@@ -1,3 +1,4 @@
+from utility.parser import *
 class FacilityLocationModel:
     """Modello per problemi di Facility Location (UFL)"""
 
@@ -52,7 +53,6 @@ class FacilityLocationModel:
     @classmethod
     def from_file(cls, filename):
         """Crea un'istanza direttamente da file"""
-        from parser import parse_ufl_instance
         data = parse_ufl_instance(filename)
         return cls.from_dict(data)
 

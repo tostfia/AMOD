@@ -1,8 +1,5 @@
-import os
-import json
-from pathlib import Path
-import glob
-from facilityLocation import FacilityLocationModel
+from utility import facilityLocation
+
 
 def parse_ufl_instance(filename):
     """
@@ -58,6 +55,8 @@ def parse_ufl_instance(filename):
         "fixed_costs": fixed_costs,
         "assignment_costs": assignment_costs,
     }
+
+
 def parse_ufl_to_model(filename):
     """Parser che restituisce direttamente un FacilityLocationModel"""
 

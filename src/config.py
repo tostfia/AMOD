@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Percorsi base
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+PROJECT_ROOT = Path(__file__).parent
 DATA_DIR = PROJECT_ROOT / "data" / "instances"
 RESULTS_DIR = PROJECT_ROOT / "results"
 CONFIG_DIR = PROJECT_ROOT / "config"
