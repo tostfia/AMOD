@@ -1,12 +1,9 @@
 from utility import facilityLocation
+from utility.facilityLocation import *
+from utility.facilityLocation import FacilityLocationModel
 
 
 def parse_ufl_instance(filename):
-    """
-    Parser migliorato per problemi UFL con supporto a più formati.
-    Ignora capacità e supporta sia il formato 'capacity cost' sia altri.
-    """
-
     with open(filename, 'r') as file:
         lines = [line.strip() for line in file if line.strip()]
 
@@ -14,40 +11,50 @@ def parse_ufl_instance(filename):
     idx = 1
 
     fixed_costs = []
-    # Determina se il file ha la forma "capacity fixed_cost" o solo "fixed_cost"
     test_line = lines[idx]
     if test_line.lower().startswith("capacity") or len(test_line.split()) == 2:
-        # formato "capacity fixed_cost" o con etichetta "capacity"
         for _ in range(m):
+            if idx >= len(lines):
+                raise ValueError("File terminato prematuramente durante lettura fixed_costs")
             parts = lines[idx].split()
             try:
-                cost = float(parts[-1])  # fissa all'ultimo valore
-                fixed_costs.append(cost)
-            except:
-                raise ValueError(f"Errore nel parsing della riga: {lines[idx]}")
+                fixed_costs.append(float(parts[-1]))
+            except Exception:
+                raise ValueError(f"Errore parsing fixed_costs alla riga {idx+1}: {lines[idx]}")
             idx += 1
     else:
-        # Solo costi fissi (una riga ciascuno)
         for _ in range(m):
-            fixed_costs.append(float(lines[idx]))
+            if idx >= len(lines):
+                raise ValueError("File terminato prematuramente durante lettura fixed_costs")
+            try:
+                fixed_costs.append(float(lines[idx]))
+            except Exception as e:
+                raise ValueError(f"Errore parsing fixed_costs alla riga {idx+1}: {lines[idx]}")
             idx += 1
 
     assignment_costs = []
-    while len(assignment_costs) < n and idx < len(lines):
-        # Ignora eventuali righe che contengono solo un numero (es. "89")
+    while len(assignment_costs) < n:
+        if idx >= len(lines):
+            raise ValueError(f"File terminato prematuramente durante lettura assignment_costs, letti {len(assignment_costs)} su {n}")
+
+        # Prova a saltare una riga singola con solo un numero (es: "89")
         try:
             maybe_count = int(lines[idx])
             idx += 1
+            continue
         except ValueError:
             pass
 
         row_costs = []
         while len(row_costs) < m:
-            row_costs.extend(map(float, lines[idx].split()))
+            if idx >= len(lines):
+                raise ValueError(f"File terminato prematuramente durante costruzione riga costi cliente {len(assignment_costs)+1}")
+            try:
+                row_costs.extend(map(float, lines[idx].split()))
+            except Exception as e:
+                raise ValueError(f"Errore parsing righe di assignment_costs alla riga {idx+1}: {lines[idx]}")
             idx += 1
         assignment_costs.append(row_costs)
-
-    assert len(assignment_costs) == n, f"Errore: letti solo {len(assignment_costs)} clienti su {n}"
 
     return {
         "num_facilities": m,

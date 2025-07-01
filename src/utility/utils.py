@@ -5,8 +5,19 @@ from utility.facilityLocation import FacilityLocationModel
 from config import *
 import numpy as np
 from typing import Tuple
+from datetime import datetime
+import logging
+import random
+import pandas as pd
+import sys
+import os
+import math
+import numpy as np
+import shutil
+from scipy.stats import pearsonr
 
-"""Metodi per generare randomicamente istanze di UFL"""
+logging.basicConfig(filename='resolution.log', format='%(asctime)s - %(message)s', level=logging.INFO,
+                    datefmt='%d-%b-%y %H:%M:%S')
 
 
 def getSeed():
@@ -36,3 +47,41 @@ def generateInstance(instance_num: int, num_facilities: int, num_customers: int)
     return model
 
 
+def getStatistics(nVar, nConstraints, optimal_sol, sol, sol_type, status, ncuts, elapsed_time, iterations):
+    stats = []
+    stats.append(nVar)
+    stats.append(nConstraints)
+    stats.append(optimal_sol)
+    stats.append(sol)
+    stats.append(sol_type)
+    stats.append(status)
+    stats.append(ncuts)
+    stats.append(round(elapsed_time))
+    stats.append(modulus(sol, optimal_sol))
+    if optimal_sol == sol:
+        stats.append(0)
+    else:
+        if optimal_sol == 0:
+            stats.append(0)
+        else:
+            stats.append(modulus(sol, optimal_sol) / (optimal_sol + pow(10, -10)))
+    stats.append(iterations)
+    return stats
+
+
+def modulus(x, y):
+    return abs(x - y)
+
+
+def flushLog(logName):
+    '''
+    This function flushes the log.
+    '''
+    with open(logName, 'w') as file:
+        pass
+
+    if os.path.exists("lp"):
+        shutil.rmtree("lp")
+
+    if os.path.exists("solutions"):
+        shutil.rmtree("solutions")

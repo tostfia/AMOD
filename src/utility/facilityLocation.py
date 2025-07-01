@@ -1,4 +1,6 @@
 from utility.parser import *
+
+
 class FacilityLocationModel:
     """Modello per problemi di Facility Location (UFL)"""
 
