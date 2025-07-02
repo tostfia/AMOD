@@ -16,7 +16,7 @@ columns = ["name", "nvar", "nconstraints", "optimal_sol", "sol", "sol_is_integer
            "elapsed_time", "gap", "relative_gap", "iterations"]
 
 
-def solveInstance(model, instance,  stats):
+def solveInstance(model:FacilityLocationModel, instance:str,  stats:any):
     logging.info("\n---------------------------------------------------")
     logging.info("Solving problem instance '" + instance + "';\n")
     stats_i = solveProblem(model, instance)
