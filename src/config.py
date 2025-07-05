@@ -8,12 +8,7 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 CONFIG_DIR = PROJECT_ROOT / "config"
 MODEL_DIR = PROJECT_ROOT / "model"
 
-# Configurazioni solver
-SOLVER_CONFIGS = {
-    'cplex': CONFIG_DIR / "solver_configs" / "cplex_settings.txt",
-    'gurobi': CONFIG_DIR / "solver_configs" / "gurobi_settings.txt",
-    'cbc': CONFIG_DIR / "solver_configs" / "cbc_settings.txt"
-}
+
 
 # Parametri esperimenti
 TIME_LIMIT = 3600  # secondi

@@ -1,31 +1,20 @@
-from datetime import datetime
-import random
-from pathlib import Path
+
 from utility.facilityLocation import FacilityLocationModel
 from config import *
-import numpy as np
-from typing import Tuple
+
 from datetime import datetime
-import logging
 import random
-import pandas as pd
-import sys
-import os
-import math
-import numpy as np
-import shutil
-from scipy.stats import pearsonr
-
-logging.basicConfig(filename='resolution.log', format='%(asctime)s - %(message)s', level=logging.INFO,
-                    datefmt='%d-%b-%y %H:%M:%S')
 
 
-def getSeed():
+
+
+
+def get_seed():
     return int(datetime.now().timestamp()) % 1_000_000
 
 
-def generateInstance(instance_num: int, num_facilities: int, num_customers: int):
-    random.seed(getSeed())
+def generate_instance(instance_num: int, num_facilities: int, num_customers: int):
+    random.seed(get_seed())
 
     base_path = DATA_DIR / "instances" / "random"
     base_path.mkdir(parents=True, exist_ok=True)
@@ -47,7 +36,7 @@ def generateInstance(instance_num: int, num_facilities: int, num_customers: int)
     return model
 
 
-def getStatistics(nVar, nConstraints, optimal_sol, sol, sol_type, status, ncuts, elapsed_time, iterations):
+def get_statistics(nVar, nConstraints, optimal_sol, sol, sol_type, status, ncuts, elapsed_time, iterations):
     stats = []
     stats.append(nVar)
     stats.append(nConstraints)
@@ -73,15 +62,3 @@ def modulus(x, y):
     return abs(x - y)
 
 
-def flushLog(logName):
-    '''
-    This function flushes the log.
-    '''
-    with open(logName, 'w') as file:
-        pass
-
-    if os.path.exists("lp"):
-        shutil.rmtree("lp")
-
-    if os.path.exists("solutions"):
-        shutil.rmtree("solutions")

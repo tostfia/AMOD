@@ -1,21 +1,9 @@
 import sys
-import logging
-import warnings
-from pathlib import Path
-from config import *
-from plotter.plott import *
-from utility.facilityLocation import FacilityLocationModel
 from utility.utils import *
-from analysis.solver import *
 from analysis.gomory import *
-import pandas as pd
 
-columns = ["name", "nvar", "nconstraints", "optimal_sol", "sol", "sol_is_integer", "status", "ncuts", "elapsed_time",
-           "gap", "relative_gap", "iterations"]
-logging.basicConfig(filename='resolution.log', format='%(asctime)s - %(message)s', level=logging.INFO,
-                    datefmt='%d-%b-%y %H:%M:%S')
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings('ignore')
+
+
 
 
 def print_menu():
@@ -29,17 +17,15 @@ def print_menu():
     print("=" * 60)
 
 
-def process_single_instance(filepath: Path) -> dict:
+def process_single_instance(filepath: Path) -> dict[str, bool | str] | None:
     try:
         print(f"\n\U0001F501 Elaborazione: {filepath.name}")
-        stats = pd.DataFrame(columns=columns)
         model = FacilityLocationModel.from_file(filepath)
-        solveInstance(model, filepath.name, stats)
-
-
+        gomory= Gomory(model)
+        gomory.solve_problem(filepath.name)
 
     except Exception as e:
-        logging.error(f"Errore in {filepath}: {e}")
+        print("f\U0001F6AB Errore durante l'elaborazione:", e)
         return {'success': False, 'message': str(e), 'filename': filepath.name}
 
 
@@ -67,10 +53,10 @@ def process_single_instance_interactive():
 def generate_random_instance():
     user_input = input("Inserisci ID, facilities, clienti (es: 1 10 50): ")
     try:
-        stats = pd.DataFrame(columns=columns)
         instance_id, num_f, num_c = map(int, user_input.split())
-        model = generateInstance(instance_id, num_f, num_c)
-        solveInstance(model, f"{instance_id}.txt", stats)
+        model = generate_instance(instance_id, num_f, num_c)
+        gomory = Gomory(model)
+        gomory.solve_problem(f"random_instance_{instance_id}.txt")
     except Exception as e:
         print(f"Errore: {e}")
 
@@ -82,7 +68,7 @@ def main():
     while True:
         print_menu()
         choice = input("Scegli un'opzione (1-4): ").strip()
-        flushLog("resolution.log")
+
         if choice == '1':
             process_all_instances()
         elif choice == '2':

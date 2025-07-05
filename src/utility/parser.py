@@ -1,6 +1,5 @@
-from utility import facilityLocation
-from utility.facilityLocation import *
 
+from utility.facilityLocation import *
 
 
 def parse_ufl_instance(filename):
