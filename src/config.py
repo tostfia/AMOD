@@ -12,7 +12,5 @@ MODEL_DIR = PROJECT_ROOT / "model"
 
 # Parametri esperimenti
 TIME_LIMIT = 3600  # secondi
-THRESHOLD_GAP = 0.05 # tolleranza per i risultati
+THRESHOLD_GAP = 0.01 # tolleranza per i risultati
 MAX_ITERATIONS = 1000
-#Rapporto bilanciato: Usa un rapporto facilities:customers di circa 1:2.5 o 1:3
-#Numero medio-alto di facilities (~10–25) e clienti (~25–50)
