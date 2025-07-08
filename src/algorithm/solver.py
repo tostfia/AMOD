@@ -50,7 +50,7 @@ class Solver:
         if maximize:
             c = -c
 
-        # --- VINCOLI (rimangono invariati) ---
+        # --- VINCOLI ---
         A_list = []
         b_list = []
         # Vincoli: sum_u y_uv = 1 per ogni cliente v
@@ -88,8 +88,6 @@ class Solver:
         nCols = p + (r * p)
         name = instance_path.stem
 
-        # 1. Ottieni il vettore dei costi (c)
-        # Usiamo get_problem_data solo per il vettore 'c', ignorando A e b
         c, _, _ = self.get_problem_data(maximize=maximize)
 
         try:
@@ -107,7 +105,7 @@ class Solver:
                 var_names = ["x" + str(i) for i in range(nCols)]
                 mkp.variables.add(obj=c.tolist(), names=var_names, types=var_types)
 
-                # --- INIZIO PARTE MODIFICATA ---
+
 
                 constraints_to_add = []
                 rhs_to_add = []
@@ -135,7 +133,6 @@ class Solver:
                     rhs=rhs_to_add,
                     senses=senses_to_add
                 )
-                # --- FINE PARTE MODIFICATA ---
 
                 print(f"Risolvendo ILP per {name} per trovare l'ottimo di riferimento...")
                 mkp.solve()

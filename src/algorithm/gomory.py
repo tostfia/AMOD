@@ -1,10 +1,6 @@
 import datetime
 import cplex
 import numpy as np
-
-
-# Importiamo solo le classi/funzioni necessarie dagli altri moduli.
-# Le funzioni di generazione dei tagli non vengono più importate.
 from algorithm.solver import Solver, print_solution
 from config import *
 from utility.facilityLocation import FacilityLocationModel
@@ -46,16 +42,11 @@ class Gomory:
         # dalle variabili di slack/ausiliarie.
         self.n_cols_original = 0
 
-    # =============================================================================
-    # METODI PRIVATI PER LA GENERAZIONE DEI TAGLI
-    # Questi metodi sono interni alla classe e vengono chiamati da `solve_problem`.
-    # L'underscore iniziale `_` è una convenzione Python per indicare metodi "privati".
-    # =============================================================================
+    #metodi privati per la scelta della modalità di taglio
 
     def _generate_gomory_fractional_cuts(self, prob: cplex.Cplex):
         """Genera Tagli Frazionari di Gomory (GFC)."""
         generated_cuts = []
-        NUMERICAL_TOLERANCE = 1e-6
         try:
             basis_col_status, _ = prob.solution.basis.get_basis()
             values = prob.solution.get_values()
@@ -82,15 +73,10 @@ class Gomory:
                             cut_coeffs.append(f_j)
 
                     if cut_indices:
-                        # Formula del taglio GFC: sum(f_j * x_j) >= f_i
-                        # La scriviamo come: -sum(f_j * x_j) <= -f_i
-                        lhs_coeffs = [-c for c in cut_coeffs]
-                        rhs_val = -fractional_part
-                        violation = sum(c * values[idx] for c, idx in zip(cut_coeffs, cut_indices)) + rhs_val
-
+                        violation=fractional_part
                         generated_cuts.append({
-                            'indices': cut_indices, 'coeffs': lhs_coeffs,
-                            'rhs': rhs_val, 'sense': 'L', 'violation': violation
+                            'indices': cut_indices, 'coeffs': cut_coeffs,
+                            'rhs':fractional_part, 'sense': 'G', 'violation': violation
                         })
         except cplex.CplexError as e:
             print(f"ERRORE CPLEX durante la generazione dei tagli GFC: {e}")
@@ -100,13 +86,11 @@ class Gomory:
     def _generate_gomory_mixed_integer_cuts(self, prob: cplex.Cplex):
         """Genera Tagli Misti Interi di Gomory (GMI)."""
         generated_cuts = []
-        NUMERICAL_TOLERANCE = 1e-6
+
         try:
             basis_col_status, _ = prob.solution.basis.get_basis()
             values = prob.solution.get_values()
 
-            # Cerchiamo variabili di base che dovrebbero essere INTERE ma hanno valore FRAZIONARIO.
-            # Usiamo self.n_cols_original per assicurarci di considerare solo le variabili del problema UFL.
             basic_var_indices = [i for i, s in enumerate(basis_col_status)
                                  if s == prob.solution.basis.status.basic] #cerco qualsiasi var di base come GFC
             non_basic_var_indices = [i for i, s in enumerate(basis_col_status)
@@ -141,23 +125,18 @@ class Gomory:
                             cut_coeffs.append(coeff)
 
                     if cut_indices:
-                        # Formula del taglio GMI: sum(coeff_j * x_j) >= f_i
-                        lhs_coeffs = [-c for c in cut_coeffs]
-                        rhs_val = -f_i
-                        violation = sum(c * values[idx] for c, idx in zip(cut_coeffs, cut_indices)) + rhs_val
-                        if violation > NUMERICAL_TOLERANCE:
-                            generated_cuts.append({
-                                'indices': cut_indices, 'coeffs': lhs_coeffs,
-                                'rhs': rhs_val, 'sense': 'L', 'violation': violation
-                            })
+
+                        violation = f_i
+                        generated_cuts.append({
+                                'indices': cut_indices, 'coeffs': cut_coeffs,
+                                'rhs':f_i, 'sense': 'G', 'violation': violation
+                        })
         except cplex.CplexError as e:
             print(f"ERRORE CPLEX durante la generazione dei tagli GMI: {e}")
 
         return generated_cuts
 
-    # =============================================================================
-    # METODO PRINCIPALE DI RISOLUZIONE
-    # =============================================================================
+    #metodo principlae di risoluzione
 
     def solve_problem(self, instance_path_str: str, cut_mode: str = 'GFC'):
         instance_path = Path(instance_path_str)
@@ -260,4 +239,4 @@ class Gomory:
             return tot_stats
         except Exception as e:
             print(f"ERRORE IMPREVISTO in solve_problem: {e}")
-            raise # Rilancia l'eccezione per un debug più facile
+            raise

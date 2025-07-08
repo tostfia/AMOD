@@ -22,7 +22,7 @@ def print_menu():
 
 
 
-# --- VERSIONE FINALE DELLA FUNZIONE INTERATTIVA ---
+
 def process_single_instance_interactive():
     """
     Permette all'utente di scegliere un'istanza e poi la modalità di taglio
@@ -46,7 +46,7 @@ def process_single_instance_interactive():
         selected_file = txt_files[choice]
         instance_name = selected_file.stem
 
-        # 2. Scelta della modalità di taglio
+        # Scelta della modalità di taglio
         print("\nScegli la modalità di taglio:")
         for i, mode in enumerate(CUT_MODES_AVAILABLE):
             print(f"{i+1}. {mode}")
@@ -63,7 +63,7 @@ def process_single_instance_interactive():
             print("Selezione modalità non valida.")
             return
 
-        # 3. Esecuzione e raccolta risultati
+        #  Esecuzione e raccolta risultati
         all_summaries = []
         model = FacilityLocationModel.from_file(selected_file)
         gomory_solver = Gomory(model)
@@ -109,7 +109,7 @@ def process_single_instance_interactive():
             }
             all_summaries.append(summary)
 
-        # 4. Stampa e Reporting finale
+        #Stampa e Reporting finale
         if all_summaries:
             print("\n--- Riepilogo Risultati a Schermo ---")
             for s in all_summaries:
@@ -119,8 +119,6 @@ def process_single_instance_interactive():
             if len(all_summaries) > 1:
                 print("\nGenerazione report comparativo per la singola istanza...")
                 report_dir = RESULTS_DIR / "single_instance_reports" / instance_name
-                # La funzione save_summary_report attuale non è adatta per i confronti,
-                # quindi la richiamiamo per completezza, ma andrebbe creata una funzione apposita.
                 save_summary_report(all_summaries, report_dir)
 
     except (ValueError, IndexError):
@@ -168,7 +166,6 @@ def process_all_instances_for_one_mode(mode: str):
                 print(f"--> L'istanza è stata risolta al rilassamento LP iniziale. Grafico di convergenza non necessario.")
 
             initial_stats, final_stats = all_stats[0], all_stats[-1]
-            # Logica di categorizzazione (assicurati che sia presente e corretta)
             initial_gap = initial_stats.get('relative_gap', 1)
             final_gap = final_stats.get('relative_gap', 1)
             status = final_stats.get('status', 'unknown')

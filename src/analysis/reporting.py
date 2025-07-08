@@ -3,14 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from pathlib import Path
-
-
-# Imposta uno stile grafico consistente per tutto il modulo
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette('muted')
-# =============================================================================
-# Funzione Helper per Pulire i Nomi delle Istanze
-# =============================================================================
 
 def clean_instance_name(name: str) -> str:
     """Pulisce i nomi delle istanze per una migliore visualizzazione nei grafici."""
@@ -22,46 +16,8 @@ def clean_instance_name(name: str) -> str:
         return f"{parts[0]}_{parts[-1][:4]}" # Abbrevia l'identificatore univoco
     return name
 
-# =============================================================================
-# Funzioni di Plotting per Singola Istanza
-# =============================================================================
-def plot_comparison_by_metric(df: pd.DataFrame, metric: str, title: str, output_dir: Path):
-    """
-    Funzione generica per creare un grafico a barre comparativo per una data metrica.
-    Metriche possibili: 'gap_closure', 'total_iterations', 'total_time_ms'.
-    """
-    plt.figure(figsize=(20, 10))
 
-    # Prepara i dati per il plotting
-    df_plot = df.copy()
-    df_plot['clean_name'] = df_plot['instance_name'].apply(clean_instance_name)
 
-    # Moltiplichiamo il gap per 100 se è la metrica scelta
-    if 'gap' in metric:
-        df_plot[metric] *= 100
-
-    sns.barplot(
-        data=df_plot,
-        x='clean_name',
-        y=metric,
-        hue='cut_mode'
-    )
-
-    plt.title(title, fontsize=18, fontweight='bold')
-    plt.ylabel(f'{metric} {"(%)" if "gap" in metric else ""}', fontsize=12)
-    plt.xlabel('Istanza', fontsize=12)
-    plt.xticks(rotation=90, fontsize=8)
-    plt.grid(axis='y', linestyle='--')
-    if 'gap' in metric:
-        plt.axhline(0, color='black', linewidth=0.8) # Linea dello zero per il gap
-
-    plt.legend(title='Modalità di Taglio')
-    plt.tight_layout()
-
-    plot_path = output_dir / f"_comparison_{metric}_by_mode.png"
-    plt.savefig(plot_path, dpi=300)
-    plt.close()
-    print(f"Grafico comparativo per '{metric}' salvato in: {plot_path}")
 
 def plot_single_instance_convergence(instance_stats: list[dict], output_file: Path):
     """
@@ -109,9 +65,11 @@ def plot_single_instance_convergence(instance_stats: list[dict], output_file: Pa
     plt.close()
     print(f"Grafico di convergenza per '{instance_name}' salvato in: {output_file}")
 
-# =============================================================================
-# Funzioni di Plotting Comparativo
-# =============================================================================
+
+
+
+
+
 
 def plot_summary_results_category(df: pd.DataFrame, output_dir: Path):
     """
@@ -153,7 +111,7 @@ def plot_summary_results_category(df: pd.DataFrame, output_dir: Path):
     plt.close()
     print(f"Grafico riassuntivo per categoria salvato in: {plot_path}")
 
-# In analysis/reporting.py
+
 
 def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
     """
@@ -162,7 +120,7 @@ def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
     """
     df_plot = df.copy()
 
-    # Assicurati che 'instance_name' esista prima di procedere
+
     if 'instance_name' not in df_plot.columns:
         print("Errore: la colonna 'instance_name' non è presente nel DataFrame per plot_gap_closure_efficiency.")
         return
@@ -173,9 +131,7 @@ def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
 
     colors = ['forestgreen' if x >= 0 else 'crimson' for x in df_plot['gap_closure_pct']]
 
-    # --- 1. SOLUZIONE: Altezza Dinamica ---
-    # Calcoliamo un'altezza ragionevole basata sul numero di istanze.
-    # 0.4 pollici per istanza, con un minimo di 10 pollici.
+    #altezza dinamica in base al numero di istanze
     num_instances = len(df_plot)
     dynamic_height = max(12, num_instances * 0.35)
 
@@ -198,11 +154,9 @@ def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
         x_pos = value + (np.sign(value) * 0.5) if value != 0 else 0.5
         ax.text(x_pos, index, f'{value:.2f}%', va='center', ha=ha, fontsize=8)
 
-    # --- 2.  Controllo Manuale dei Margini ---
-    # Usiamo fig.subplots_adjust invece di plt.subplots_adjust
+
     fig.subplots_adjust(left=0.3, right=0.95, top=0.95, bottom=0.05)
 
-    # Rimuoviamo la chiamata a plt.tight_layout() che causava il warning
 
     plot_path = output_dir / "_gap_efficiency.png"
     plt.savefig(plot_path, dpi=300)
@@ -268,9 +222,7 @@ def plot_computational_cost(df: pd.DataFrame, output_dir: Path):
     plt.close()
     print(f"Grafico comparativo sul costo computazionale per modalità '{current_mode}' salvato in: {cost_plot_path}")
 
-# =============================================================================
-# Funzione Principale per il Reporting
-# =============================================================================
+
 
 def save_summary_report(all_summaries: list[dict], output_dir: Path):
     """
@@ -281,20 +233,19 @@ def save_summary_report(all_summaries: list[dict], output_dir: Path):
         print("Nessun riassunto da elaborare. Nessun report generato.")
         return
 
-    # 1. Preparazione dei Dati e Salvataggio CSV
+    # Preparazione dei Dati e Salvataggio CSV
     df = pd.DataFrame(all_summaries).sort_values('instance_name').reset_index(drop=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     mode_name = df['cut_mode'].iloc[0] if not df.empty else "unknown_mode"
-    csv_path = output_dir / "_summary_{mode_name}.csv"
+    csv_path = output_dir / f"_summary_{mode_name}.csv"
     df.to_csv(csv_path, index=False, float_format='%.4f')
     print(f"\nReport CSV riassuntivo salvato in: {csv_path}")
 
-    # 2. Generazione di tutti i Grafici Comparativi
+    #Generazione di tutti i Grafici Comparativi
     print("\nGenerazione dei grafici riassuntivi...")
     plot_summary_results_category(df, output_dir)
     plot_gap_closure_efficiency(df, output_dir)
     plot_gap_reduction(df, output_dir)
     plot_computational_cost(df, output_dir)
-    plot_comparison_by_metric(df, 'total_time_ms', 'Confronto Costo Computazionale: Tempo (ms)', output_dir)
 
     print("...Grafici generati con successo.")

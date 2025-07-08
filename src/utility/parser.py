@@ -1,4 +1,4 @@
-from utility.facilityLocation import FacilityLocationModel
+
 
 
 def parse_ufl_instance(filename):
@@ -66,5 +66,6 @@ def parse_ufl_to_model(filename):
     """Parser che restituisce direttamente un FacilityLocationModel"""
 
     data = parse_ufl_instance(filename)
+    from utility.facilityLocation import FacilityLocationModel
     return FacilityLocationModel.from_dict(data)
 

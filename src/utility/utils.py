@@ -1,20 +1,14 @@
 import os
 import uuid
-
 from config import *
 import random
 from configparser import ConfigParser
 from datetime import datetime
 
 
-
-
-
-
 def get_seed():
     """
     Genera un seed più robusto combinando tempo e ID di processo.
-    Questo previene la generazione dello stesso seed se eseguito rapidamente.
     """
     timestamp_part = int(datetime.now().timestamp() * 1000)
     pid_part = os.getpid()
@@ -25,10 +19,6 @@ def generate_ufl_instance( num_facilities: int, num_customers: int, cluster_type
     """
     Genera una singola istanza UFL e la salva su file.
 
-    Arguments:
-        num_facilities: Numero di facility (p).
-        num_customers: Numero di clienti (r).
-        cluster_type: Nome del cluster (es. 'SMALL_UFL').
     """
     random.seed(get_seed())
 
@@ -51,10 +41,10 @@ def generate_ufl_instance( num_facilities: int, num_customers: int, cluster_type
     filepath= path_name / instance_name
 
     # Genera i dati del problema UFL
-    # 1. Costi fissi per aprire ogni facility
+    # Costi fissi per aprire ogni facility
     fixed_costs = [random.randint(min_fixed_cost, max_fixed_cost) for _ in range(num_facilities)]
 
-    # 2. Matrice dei costi di assegnazione (cliente -> facility)
+    # Matrice dei costi di assegnazione (cliente -> facility)
     assignment_costs = []
     for _ in range(num_customers):
         customer_costs = [random.randint(min_assign_cost, max_assign_cost) for _ in range(num_facilities)]
@@ -80,12 +70,6 @@ def generate_ufl_instance( num_facilities: int, num_customers: int, cluster_type
 def generate_cluster_of_ufl_instances(num_instances: int, f_range: list, c_range: list, cluster_type: str):
     """
     Genera un cluster di istanze UFL con parametri variabili.
-
-    Arguments:
-        num_instances: Numero di istanze da generare.
-        f_range: Range [min, max] per il numero di facility.
-        c_range: Range [min, max] per il numero di clienti.
-        cluster_type: Nome del cluster.
     """
     print(f"\tGenerazione di {num_instances} istanze per il cluster '{cluster_type}'...")
 
