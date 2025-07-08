@@ -1,7 +1,4 @@
-
-import os
 import numpy as np
-import logging
 import cplex
 from pathlib import Path
 from utility.facilityLocation import FacilityLocationModel
@@ -27,96 +24,6 @@ def print_solution(prob: cplex.Cplex()):
             print(f"Errore critico durante il recupero della soluzione: {e}")
             return None, False, "error"
 
-def initialize_instance_variables(nCols, nRows):
-    """Inizializza i nomi e i bound per le variabili e i vincoli."""
-    names = ["x" + str(i) for i in range(nCols)] + ["s" + str(i) for i in range(nRows)]
-    lower_bounds = [0.0] * (nCols + nRows)
-    upper_bounds = [1.0] * nCols # Upper bound solo per le variabili originali binarie
-
-    constraint_names = ["c" + str(i) for i in range(nRows)]
-    constraint_senses = ["L"] * nRows
-
-    return names, lower_bounds, upper_bounds, constraint_senses, constraint_names
-
-
-
-
-# In analysis/solver.py
-
-def generate_gomory_fractional_cuts(prob: cplex.Cplex, num_original_vars: int):
-    """
-    Genera Tagli Frazionari di Gomory per un problema di MASSIMIZZAZIONE.
-    Versione matematicamente corretta che costruisce i tagli solo
-    sulle variabili non di base.
-    """
-    generated_cuts = []
-    NUMERICAL_TOLERANCE = 1e-6
-
-    try:
-        # 1. Ottieni le informazioni di base
-        basis_col_status, _ = prob.solution.basis.get_basis()
-        values = prob.solution.get_values()
-
-        # 2. Identifica gli indici delle variabili DI BASE e NON DI BASE
-        basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
-        non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s== prob.solution.basis.status.basic)]
-
-        # 3. Itera sulle variabili di base per trovare quelle frazionarie
-        for var_idx in basic_var_indices:
-            basic_var_value = values[var_idx]
-            fractional_part = basic_var_value - np.floor(basic_var_value)
-
-            if fractional_part > NUMERICAL_TOLERANCE and (1 - fractional_part) > NUMERICAL_TOLERANCE:
-                # Trovata una riga candidata per il taglio
-
-                # 4. Ottieni la riga del tableau corrispondente
-                try:
-                    row_idx = basic_var_indices.index(var_idx)
-                    tableau_row_coeffs = np.array(prob.solution.advanced.binvarow(row_idx))
-                except (ValueError, cplex.CplexError) as e:
-                    print(f"Avviso: impossibile ottenere la riga del tableau per la variabile di base {var_idx}. Errore: {e}")
-                    continue
-
-                f_i = fractional_part
-
-                # --- INIZIO CORREZIONE FONDAMENTALE ---
-
-                # 5. Costruisci il taglio in termini di variabili NON DI BASE
-                cut_indices = []
-                cut_coeffs = []
-                for j, non_basic_idx in enumerate(non_basic_var_indices):
-                    f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
-                    if f_j > NUMERICAL_TOLERANCE:
-                        cut_indices.append(non_basic_idx)
-                        cut_coeffs.append(f_j)
-
-                if cut_indices:
-                    lhs_coeffs = [-c for c in cut_coeffs]
-                    rhs_val = -f_i
-
-                    cut_dict = {
-                        'indices': cut_indices,
-                        'coeffs': lhs_coeffs,
-                        'rhs': rhs_val,
-                        'sense': 'L',
-                        'violation': f_i
-                    }
-                    generated_cuts.append(cut_dict)
-
-
-    except cplex.CplexError as e:
-        print(f"ERRORE CPLEX durante la generazione dei tagli: {e}")
-
-    if not generated_cuts:
-        return []
-
-    # Ordina e seleziona i tagli migliori
-    generated_cuts.sort(key=lambda x: x['violation'], reverse=True)
-    MAX_CUTS_PER_ITERATION = 100
-    num_to_add = min(len(generated_cuts), MAX_CUTS_PER_ITERATION)
-    print(f"Generati {len(generated_cuts)} tagli validi, verranno aggiunti i {num_to_add} più violati.")
-
-    return generated_cuts[:num_to_add]
 
 class Solver:
     def __init__(self, model: FacilityLocationModel):
@@ -169,13 +76,21 @@ class Solver:
         b = np.array(b_list, dtype=np.float64)
         return c, A, b
 
+
+
     def determine_optimal(self, instance_path: Path, maximize=False):
         """
         Risolve l'ILP per trovare la soluzione ottima di riferimento.
+        Questa versione costruisce i vincoli direttamente per maggiore chiarezza ed efficienza.
         """
-        c, A, b = self.get_problem_data(maximize=maximize)
-        nCols = len(c)
+        p = self.model.get_num_facilities()
+        r = self.model.get_num_customers()
+        nCols = p + (r * p)
         name = instance_path.stem
+
+        # 1. Ottieni il vettore dei costi (c)
+        # Usiamo get_problem_data solo per il vettore 'c', ignorando A e b
+        c, _, _ = self.get_problem_data(maximize=maximize)
 
         try:
             with cplex.Cplex() as mkp:
@@ -188,17 +103,39 @@ class Solver:
                 mkp.set_warning_stream(None)
                 mkp.set_results_stream(None)
 
+                var_types = [mkp.variables.type.binary] * nCols
                 var_names = ["x" + str(i) for i in range(nCols)]
-                mkp.variables.add(names=var_names, types=[mkp.variables.type.binary] * nCols)
+                mkp.variables.add(obj=c.tolist(), names=var_names, types=var_types)
 
-                constraint_senses = ["L"] * len(b)
+                # --- INIZIO PARTE MODIFICATA ---
+
+                constraints_to_add = []
+                rhs_to_add = []
+                senses_to_add = []
+
+                # Vincoli di uguaglianza: sum_u y_uv = 1 per ogni cliente v
+                for v in range(r):
+                    row_indices = [p + u * r + v for u in range(p)]
+                    row_values = [1.0] * p
+                    constraints_to_add.append(cplex.SparsePair(ind=row_indices, val=row_values))
+                    rhs_to_add.append(1.0)
+                    senses_to_add.append('E') # 'E' per Equality
+
+                # Vincoli di disuguaglianza: y_uv <= x_u  ->  y_uv - x_u <= 0
+                for u in range(p):
+                    for v in range(r):
+                        row_indices = [p + u * r + v, u]
+                        row_values = [1.0, -1.0]
+                        constraints_to_add.append(cplex.SparsePair(ind=row_indices, val=row_values))
+                        rhs_to_add.append(0.0)
+                        senses_to_add.append('L') # 'L' per Less than or equal
+
                 mkp.linear_constraints.add(
-                    lin_expr=[cplex.SparsePair(ind=list(range(nCols)), val=A[i]) for i in range(len(b))],
-                    rhs=b.tolist(),
-                    senses=constraint_senses
+                    lin_expr=constraints_to_add,
+                    rhs=rhs_to_add,
+                    senses=senses_to_add
                 )
-
-                mkp.objective.set_linear(list(enumerate(c)))
+                # --- FINE PARTE MODIFICATA ---
 
                 print(f"Risolvendo ILP per {name} per trovare l'ottimo di riferimento...")
                 mkp.solve()

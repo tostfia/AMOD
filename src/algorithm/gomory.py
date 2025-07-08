@@ -1,52 +1,14 @@
-import time
 import datetime
 import cplex
+import numpy as np
 
 
-from algorithm.solver import Solver, initialize_instance_variables, print_solution, generate_gomory_fractional_cuts
+# Importiamo solo le classi/funzioni necessarie dagli altri moduli.
+# Le funzioni di generazione dei tagli non vengono più importate.
+from algorithm.solver import Solver, print_solution
 from config import *
 from utility.facilityLocation import FacilityLocationModel
 from utility.utils import get_statistics, modulus
-
-
-def calculate_gap(current_sol, optimal_sol):
-    """Calcola il gap relativo tra la soluzione corrente e quella ottima."""
-    if optimal_sol is None or current_sol is None:
-        return float('inf')
-    # Per la massimizzazione, current_sol >= optimal_sol. Il gap è (current - optimal)
-    # Per la minimizzazione, current_sol <= optimal_sol. Il gap è (optimal - current)
-    # Usando abs() funziona in entrambi i casi.
-    gap = abs(current_sol - optimal_sol)
-    denominator = abs(optimal_sol) + 1e-10
-    return gap / denominator
-
-def setup_cplex_problem(mkp, name, c, A, b, lower_bounds, upper_bounds, constraint_senses, constraint_names):
-    """Imposta il problema CPLEX per il rilassamento LP."""
-    nCols = len(c)
-    nRows = len(b)
-    all_vars_names = ["x" + str(i) for i in range(nCols)] + ["s" + str(i) for i in range(nRows)]
-
-    mkp.set_problem_name(name)
-    mkp.objective.set_sense(mkp.objective.sense.maximize)
-
-    params = mkp.parameters
-    params.preprocessing.presolve.set(0)
-    params.lpmethod.set(params.lpmethod.values.primal) # Usa Simplex Primale
-
-    mkp.variables.add(names=all_vars_names, lb=lower_bounds, ub=upper_bounds + [cplex.infinity] * nRows)
-
-    # Aggiungi i vincoli originali con le variabili di slack
-    for i in range(nRows):
-        row_indices = list(range(nCols)) + [nCols + i] # Aggiunge l'indice della slack var
-        row_values = A[i].tolist() + [1.0] # Aggiunge il coefficiente della slack var
-        mkp.linear_constraints.add(
-            lin_expr=[cplex.SparsePair(ind=row_indices, val=row_values)],
-            rhs=[b[i]],
-            names=[constraint_names[i]],
-            senses=['E'] # Ora i vincoli sono di uguaglianza grazie alle slack
-        )
-
-    mkp.objective.set_linear(list(enumerate(c)))
 
 
 def _print_analysis_results(instance_name: str, results: dict):
@@ -69,129 +31,228 @@ def _print_analysis_results(instance_name: str, results: dict):
     print("="*95)
 
 
+
+
 class Gomory:
+    """
+    Classe che incapsula l'intero algoritmo dei piani di taglio di Gomory.
+    Contiene la logica per il ciclo iterativo e per la generazione
+    di diverse famiglie di tagli.
+    """
     def __init__(self, model: FacilityLocationModel):
         self.model = model
         self.solver = Solver(self.model)
+        # Questo attributo è importante per distinguere le variabili originali
+        # dalle variabili di slack/ausiliarie.
+        self.n_cols_original = 0
 
-    def solve_problem(self, instance_path_str: str):
+    # =============================================================================
+    # METODI PRIVATI PER LA GENERAZIONE DEI TAGLI
+    # Questi metodi sono interni alla classe e vengono chiamati da `solve_problem`.
+    # L'underscore iniziale `_` è una convenzione Python per indicare metodi "privati".
+    # =============================================================================
+
+    def _generate_gomory_fractional_cuts(self, prob: cplex.Cplex):
+        """Genera Tagli Frazionari di Gomory (GFC)."""
+        generated_cuts = []
+        NUMERICAL_TOLERANCE = 1e-6
+        try:
+            basis_col_status, _ = prob.solution.basis.get_basis()
+            values = prob.solution.get_values()
+
+            basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
+            non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s == prob.solution.basis.status.basic)]
+
+            for var_idx in basic_var_indices:
+                basic_var_value = values[var_idx]
+                fractional_part = basic_var_value - np.floor(basic_var_value)
+
+                if fractional_part > NUMERICAL_TOLERANCE and (1 - fractional_part) > NUMERICAL_TOLERANCE:
+                    try:
+                        # Ottiene la riga del tableau per la variabile di base corrente
+                        tableau_row_coeffs = np.array(prob.solution.advanced.binvarow(var_idx))
+                    except cplex.CplexError:
+                        continue # Salta se non riesce a ottenere la riga
+
+                    cut_indices, cut_coeffs = [], []
+                    for j, non_basic_idx in enumerate(non_basic_var_indices):
+                        f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
+                        if f_j > NUMERICAL_TOLERANCE:
+                            cut_indices.append(non_basic_idx)
+                            cut_coeffs.append(f_j)
+
+                    if cut_indices:
+                        # Formula del taglio GFC: sum(f_j * x_j) >= f_i
+                        # La scriviamo come: -sum(f_j * x_j) <= -f_i
+                        lhs_coeffs = [-c for c in cut_coeffs]
+                        rhs_val = -fractional_part
+                        violation = sum(c * values[idx] for c, idx in zip(cut_coeffs, cut_indices)) + rhs_val
+
+                        generated_cuts.append({
+                            'indices': cut_indices, 'coeffs': lhs_coeffs,
+                            'rhs': rhs_val, 'sense': 'L', 'violation': violation
+                        })
+        except cplex.CplexError as e:
+            print(f"ERRORE CPLEX durante la generazione dei tagli GFC: {e}")
+
+        return generated_cuts
+
+    def _generate_gomory_mixed_integer_cuts(self, prob: cplex.Cplex):
+        """Genera Tagli Misti Interi di Gomory (GMI)."""
+        generated_cuts = []
+        NUMERICAL_TOLERANCE = 1e-6
+        try:
+            basis_col_status, _ = prob.solution.basis.get_basis()
+            values = prob.solution.get_values()
+
+            # Cerchiamo variabili di base che dovrebbero essere INTERE ma hanno valore FRAZIONARIO.
+            # Usiamo self.n_cols_original per assicurarci di considerare solo le variabili del problema UFL.
+            basic_var_indices = [i for i, s in enumerate(basis_col_status)
+                                 if s == prob.solution.basis.status.basic] #cerco qualsiasi var di base come GFC
+            non_basic_var_indices = [i for i, s in enumerate(basis_col_status)
+                                     if not (s == prob.solution.basis.status.basic)]
+
+            for var_idx in basic_var_indices:
+                basic_var_value = values[var_idx]
+                f_i = basic_var_value - np.floor(basic_var_value)
+
+                if f_i > NUMERICAL_TOLERANCE and (1 - f_i) > NUMERICAL_TOLERANCE:
+                    try:
+                        tableau_row_coeffs = np.array(prob.solution.advanced.binvarow(var_idx))
+                    except cplex.CplexError:
+                        continue
+
+                    cut_indices, cut_coeffs = [], []
+                    for j, non_basic_idx in enumerate(non_basic_var_indices):
+                        a_ij = tableau_row_coeffs[j]
+                        f_j = a_ij - np.floor(a_ij)
+
+                        # Formula del coefficiente GMI
+                        if f_j <= f_i + NUMERICAL_TOLERANCE:
+                            coeff = f_j
+                        else:
+                            if (1 - f_i) > NUMERICAL_TOLERANCE:
+                                coeff = (f_i / (1 - f_i)) * (1 - f_j)
+                            else:
+                                continue # Coefficiente non calcolabile, salta
+
+                        if abs(coeff) > NUMERICAL_TOLERANCE:
+                            cut_indices.append(non_basic_idx)
+                            cut_coeffs.append(coeff)
+
+                    if cut_indices:
+                        # Formula del taglio GMI: sum(coeff_j * x_j) >= f_i
+                        lhs_coeffs = [-c for c in cut_coeffs]
+                        rhs_val = -f_i
+                        violation = sum(c * values[idx] for c, idx in zip(cut_coeffs, cut_indices)) + rhs_val
+                        if violation > NUMERICAL_TOLERANCE:
+                            generated_cuts.append({
+                                'indices': cut_indices, 'coeffs': lhs_coeffs,
+                                'rhs': rhs_val, 'sense': 'L', 'violation': violation
+                            })
+        except cplex.CplexError as e:
+            print(f"ERRORE CPLEX durante la generazione dei tagli GMI: {e}")
+
+        return generated_cuts
+
+    # =============================================================================
+    # METODO PRINCIPALE DI RISOLUZIONE
+    # =============================================================================
+
+    def solve_problem(self, instance_path_str: str, cut_mode: str = 'GFC'):
         instance_path = Path(instance_path_str)
-        print(f"\n=== INIZIO RISOLUZIONE (GOMORY SU MAXIMIZE): {instance_path.name} ===")
-
-        # 1. Ottieni i dati del problema come MASSIMIZZAZIONE
-        c, A, b = self.solver.get_problem_data(maximize=True)
-        nCols, nRows = len(c), len(b)
-
         name = instance_path.stem
-        tot_stats = []
 
-        # 2. Ottieni la soluzione ottima di riferimento (sempre in modalità massimizzazione)
+        c, A, b = self.solver.get_problem_data(maximize=True)
+        self.n_cols_original, n_rows = len(c), len(b)
+
         optimal_sol = self.solver.determine_optimal(instance_path, maximize=True)
-        if optimal_sol is None:
-            return []
+        if optimal_sol is None: return []
 
-        names, lower_bounds, upper_bounds, constraint_senses, constraint_names = initialize_instance_variables(nCols, nRows)
-
+        tot_stats = []
         try:
             with cplex.Cplex() as mkp:
-                # 3. Setup del problema LP iniziale (massimizzazione)
-                # Dobbiamo creare un modello con slack esplicite per accedere al tableau
-
+                # 1. Setup del problema LP iniziale
                 mkp.set_problem_type(mkp.problem_type.LP)
-                mkp.set_problem_name(name+"_LP_Relaxation")
+                mkp.set_problem_name(name + "_LP_Relaxation")
                 mkp.objective.set_sense(mkp.objective.sense.maximize)
+                mkp.parameters.preprocessing.presolve.set(0)
+                mkp.parameters.lpmethod.set(mkp.parameters.lpmethod.values.primal)
 
-                params = mkp.parameters
-                params.mip.cuts.set(-1) # Disattiva tutti
-                params.mip.cuts.gomory.set(2) # Attiva i tagli di Gomory in modo aggressivo
-
-                params.preprocessing.presolve.set(0)
-                params.lpmethod.set(params.lpmethod.values.primal)#usa simplex
-
-                var_names = ["x" + str(i) for i in range(nCols)]
-
-                mkp.variables.add(
-                    obj=c,
-                    lb=[0.0] * nCols,
-                    ub=[1.0] * nCols, # Bound per le variabili binarie originali
-                    names=var_names
-                )
+                var_names = ["x" + str(i) for i in range(self.n_cols_original)]
+                mkp.variables.add(obj=c, lb=[0.0] * self.n_cols_original, ub=[1.0] * self.n_cols_original, names=var_names)
                 mkp.linear_constraints.add(
-                    lin_expr=[cplex.SparsePair(ind=list(range(nCols)), val=A[i]) for i in range(nRows)],
-                    rhs=b.tolist(),
-                    senses=['L'] * nRows,
-                    names=["c"+str(i) for i in range(nRows)]# Vincoli di uguaglianza
+                    lin_expr=[cplex.SparsePair(ind=list(range(self.n_cols_original)), val=A[i]) for i in range(n_rows)],
+                    rhs=b.tolist(), senses=['L'] * n_rows, names=[f"c{i}" for i in range(n_rows)]
                 )
 
-                # 4. Risolvi il rilassamento iniziale
-                print("\n--- RISOLUZIONE RILASSAMENTO INIZIALE ---")
+                # 2. Risoluzione del rilassamento LP iniziale
                 start_time = datetime.datetime.now()
                 mkp.solve()
                 sol, sol_type, status = print_solution(mkp)
                 elapsed_time = (datetime.datetime.now() - start_time).total_seconds() * 1000
-                if status == 'integer optimal solution':
-                    print("!!DEBUF FALLITO : CPLEX sta ancora risolvendo un MIP")
-                # Aggiungi statistiche iniziali
-                stats_iter_0 = get_statistics(name, nCols, nRows, optimal_sol, sol, sol_type, status, 0, elapsed_time, 0)
+                stats_iter_0 = get_statistics(name, self.n_cols_original, n_rows, optimal_sol, sol, sol_type, status, 0, elapsed_time, 0)
                 tot_stats.append(stats_iter_0)
 
                 if status != 'optimal':
                     print("ERRORE: Rilassamento iniziale non risolto ottimamente.")
                     return tot_stats
 
-                # 5. Ciclo di Gomory
-                iteration = 1
-                total_time = elapsed_time
-                num_total_cuts = 0
+                # 3. Ciclo iterativo di aggiunta dei tagli
+                iteration, total_time, num_total_cuts = 1, elapsed_time, 0
+                MAX_TOTAL_CUTS = 500 # Limite di sicurezza sul numero totale di tagli
 
-                while (total_time <= TIME_LIMIT and
-                       modulus(sol,optimal_sol)/(abs(optimal_sol)+1e-10) > THRESHOLD_GAP and
+                while (total_time <= TIME_LIMIT and num_total_cuts <= MAX_TOTAL_CUTS and
+                       modulus(sol, optimal_sol) / (abs(optimal_sol) + 1e-10) > THRESHOLD_GAP and
                        status == "optimal" and iteration <= MAX_ITERATIONS):
 
-                    print(f"\n### ITERAZIONE GOMORY {iteration} ###")
                     start_iteration_time = datetime.datetime.now()
 
-                    # Genera nuovi tagli
-                    new_cuts_data= generate_gomory_fractional_cuts(mkp, nCols)
+                    # 3a. Genera i tagli usando i metodi della classe
+                    cuts_to_process = []
+                    if cut_mode == 'GFC':
+                        cuts_to_process = self._generate_gomory_fractional_cuts(mkp)
+                    elif cut_mode == 'GMI':
+                        cuts_to_process = self._generate_gomory_mixed_integer_cuts(mkp)
+                    elif cut_mode == 'BOTH':
+                        cuts_to_process = self._generate_gomory_fractional_cuts(mkp) + self._generate_gomory_mixed_integer_cuts(mkp)
+                    elif cut_mode == 'BEST':
+                        cuts_to_process = self._generate_gomory_fractional_cuts(mkp) + self._generate_gomory_mixed_integer_cuts(mkp)
 
-                    if not new_cuts_data:
-                        print("STOP: Nessun nuovo taglio frazionario generato. La soluzione potrebbe essere ottima intera.")
+                    if not cuts_to_process:
+                        print("STOP: Nessun nuovo taglio generato.")
                         break
 
-                    print(f"Generati {len(new_cuts_data)} nuovi tagli.")
-                    num_total_cuts += len(new_cuts_data)
-                    for i, cut_info in enumerate(new_cuts_data):
+                    # 3b. Seleziona i tagli migliori e aggiungili
+                    cuts_to_process.sort(key=lambda x: x.get('violation', 0), reverse=True)
+                    MAX_CUTS_PER_ITERATION = 10
+                    cuts_to_add = cuts_to_process[:MAX_CUTS_PER_ITERATION]
+
+                    print(f"Iterazione {iteration}: Aggiungendo {len(cuts_to_add)} nuovi tagli (tipo: {cut_mode}).")
+                    num_total_cuts += len(cuts_to_add)
+                    for i, cut_info in enumerate(cuts_to_add):
                         mkp.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(ind=cut_info['indices'], val=cut_info['coeffs'])],
-                            senses=[cut_info['sense']],
-                            rhs=[cut_info['rhs']],
-                            names=[f"gfc_{iteration}_{i}"]
+                            senses=[cut_info['sense']], rhs=[cut_info['rhs']],
+                            names=[f"{cut_mode.lower()}_{iteration}_{i}"]
                         )
 
-
-                    # Risolvi il modello aggiornato
+                    # 3c. Risolvi il modello aggiornato
                     mkp.solve()
                     sol, sol_type, status = print_solution(mkp)
 
-                    # Raccogli statistiche
+                    # 3d. Raccogli statistiche
                     iteration_time = (datetime.datetime.now() - start_iteration_time).total_seconds() * 1000
                     total_time += iteration_time
-                    current_stats = get_statistics(name, nCols, nRows + num_total_cuts, optimal_sol, sol, sol_type, status, num_total_cuts, total_time, iteration)
+                    current_stats = get_statistics(name, self.n_cols_original, n_rows + num_total_cuts, optimal_sol, sol, sol_type, status, num_total_cuts, total_time, iteration)
                     tot_stats.append(current_stats)
-                    print(f"Nuova soluzione: {sol:.4f}, status: {status}, gap: {current_stats.get('relative_gap', float('inf')):.4f}")
 
                     if status != 'optimal':
                         print(f"STOP: Il problema è diventato {status}.")
                         break
-
                     iteration += 1
 
-                print(f"\n=== FINE RISOLUZIONE ===")
-                print(f"Iterazioni totali: {iteration - 1}, Tagli totali: {num_total_cuts}")
-                # Stampa il risultato finale riconvertito in MINIMIZZAZIONE
-                if sol is not None:
-                    print(f"Valore finale (MAX): {sol:.4f} -> Valore finale (MIN): {-sol:.4f}")
-
+                print(f"\n=== FINE RISOLUZIONE (MODALITÀ {cut_mode}) ===")
                 return tot_stats
 
         except cplex.CplexError as e:
@@ -200,77 +261,3 @@ class Gomory:
         except Exception as e:
             print(f"ERRORE IMPREVISTO in solve_problem: {e}")
             raise # Rilancia l'eccezione per un debug più facile
-            return tot_stats
-
-    def analyze_with_cplex_cuts(self, instance_path: Path):
-        """
-        Analizza un'istanza usando i tagli integrati di CPLEX per valutare
-        l'impatto dei tagli di Gomory in un ambiente professionale.
-        """
-        print(f"\n\U0001F52D ANALISI AVANZATA (CPLEX CUTS) ISTANZA: {instance_path.name} \U0001F52D")
-
-        # Ottieni i dati del problema per la minimizzazione
-        c, A, b = self.solver.get_problem_data()
-        nCols = len(c)
-
-        results = {}
-
-        # Definisci le modalità di test
-        modes = {
-            "1. CPLEX Default": {"cuttype": 0},
-            "2. No Cuts": {"cuttype": -1},
-            "3. Gomory Only": {"cuttype": -1, "gomory": 2}
-        }
-
-        for mode_name, settings in sorted(modes.items()):
-            print(f"\n--- Esecuzione in modalità: {mode_name} ---")
-
-            with cplex.Cplex() as mkp:
-                mkp.set_problem_name(f"{instance_path.stem}_{mode_name.replace(' ', '_')}")
-                mkp.objective.set_sense(mkp.objective.sense.minimize)
-
-                mkp.set_log_stream(None)
-                mkp.set_results_stream(None)
-
-                params = mkp.parameters
-                params.timelimit.set(300) # Limite di tempo di 5 minuti
-
-                # Imposta i parametri per i tagli
-                if "cuttype" in settings:
-                    params.mip.strategy.cuttype.set(settings["cuttype"])
-
-                if "gomory" in settings:
-                    params.mip.cuts.gomory.set(settings["gomory"])
-
-                # Setup del modello ILP
-                mkp.variables.add(obj=c, lb=[0.0] * nCols, ub=[1.0] * nCols, types=[mkp.variables.type.binary] * nCols)
-                mkp.linear_constraints.add(lin_expr=[cplex.SparsePair(ind=list(range(nCols)), val=A[i]) for i in range(len(b))],
-                                           rhs=b.tolist(), senses=['L'] * len(b))
-
-                start_time = time.time()
-                mkp.solve()
-                end_time = time.time()
-
-                # Raccogli le statistiche
-                solution = mkp.solution
-                stats = {
-                    "status": solution.get_status_string(),
-                    "objective": 'N/A',
-                    "gap": 'N/A',
-                    "nodes": solution.progress.get_num_nodes_processed(),
-                    "time_sec": end_time - start_time,
-                    "gomory_cuts": 0
-                }
-
-                if solution.get_status() in [101, 102, 107]: # optimal, integer optimal, time limit
-                    stats["objective"] = solution.get_objective_value()
-                    stats["gap"] = solution.MIP.get_mip_relative_gap() * 100
-                    stats["gomory_cuts"] = solution.MIP.get_num_cuts(solution.MIP.cut_type.gomory)
-
-                results[mode_name] = stats
-
-        # Stampa la tabella di confronto finale
-        _print_analysis_results(instance_path.name, results)
-
-        return results # Restituisce i risultati per un'eventuale aggregazione
-

@@ -1,3 +1,5 @@
+import os
+import uuid
 
 from config import *
 import random
@@ -10,16 +12,20 @@ from datetime import datetime
 
 
 def get_seed():
-    """Genera un seed basato sul tempo corrente."""
-    return int(datetime.now().timestamp() * 1000) % 1_000_000
+    """
+    Genera un seed più robusto combinando tempo e ID di processo.
+    Questo previene la generazione dello stesso seed se eseguito rapidamente.
+    """
+    timestamp_part = int(datetime.now().timestamp() * 1000)
+    pid_part = os.getpid()
+    return (timestamp_part + pid_part) % 1_000_000_000
 
 
-def generate_ufl_instance(instance_num: int, num_facilities: int, num_customers: int, cluster_type: str):
+def generate_ufl_instance( num_facilities: int, num_customers: int, cluster_type: str):
     """
     Genera una singola istanza UFL e la salva su file.
 
     Arguments:
-        instance_num: Numero progressivo dell'istanza nel cluster.
         num_facilities: Numero di facility (p).
         num_customers: Numero di clienti (r).
         cluster_type: Nome del cluster (es. 'SMALL_UFL').
@@ -39,8 +45,10 @@ def generate_ufl_instance(instance_num: int, num_facilities: int, num_customers:
     path_name = DATA_DIR / cluster_type
     path_name.mkdir(parents=True, exist_ok=True)
 
-    instance_name = f"inst_{cluster_type}_{instance_num}.txt"
-    filepath = path_name / instance_name
+    #Usiamo un UUID per garantire un nome assoluto unico
+    unique_id=str(uuid.uuid4())[:8] #Prendo i primi 8 caratteri dell'UUID
+    instance_name = f"{cluster_type}_instance_{unique_id}.txt"
+    filepath= path_name / instance_name
 
     # Genera i dati del problema UFL
     # 1. Costi fissi per aprire ogni facility
@@ -87,7 +95,7 @@ def generate_cluster_of_ufl_instances(num_instances: int, f_range: list, c_range
         num_facilities = random.randint(f_range[0], f_range[1])
         num_customers = random.randint(c_range[0], c_range[1])
 
-        file_stem = generate_ufl_instance(i, num_facilities, num_customers, cluster_type)
+        file_stem = generate_ufl_instance(num_facilities, num_customers, cluster_type)
         generated_files.append(file_stem)
 
     print("\t...Cluster generato.")
