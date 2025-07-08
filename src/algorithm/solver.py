@@ -59,7 +59,7 @@ def generate_gomory_fractional_cuts(prob: cplex.Cplex, num_original_vars: int):
 
         # 2. Identifica gli indici delle variabili DI BASE e NON DI BASE
         basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
-        non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.at_lower_bound or s == prob.solution.basis.status.at_upper_bound]
+        non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s== prob.solution.basis.status.basic)]
 
         # 3. Itera sulle variabili di base per trovare quelle frazionarie
         for var_idx in basic_var_indices:
@@ -84,48 +84,35 @@ def generate_gomory_fractional_cuts(prob: cplex.Cplex, num_original_vars: int):
                 # 5. Costruisci il taglio in termini di variabili NON DI BASE
                 cut_indices = []
                 cut_coeffs = []
-
-                # tableau_row_coeffs ha tanti elementi quante sono le variabili non di base.
-                # L'elemento j-esimo di tableau_row_coeffs è il coefficiente della j-esima variabile non di base.
                 for j, non_basic_idx in enumerate(non_basic_var_indices):
-                    # Consideriamo solo le variabili originali, non le slack non di base
-                    if non_basic_idx < num_original_vars:
-                        # Calcola la parte frazionaria del coefficiente
-                        f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
+                    f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
+                    if f_j > NUMERICAL_TOLERANCE:
+                        cut_indices.append(non_basic_idx)
+                        cut_coeffs.append(f_j)
 
-                        # Aggiungiamo solo se il coefficiente non è trascurabile
-                        if f_j > NUMERICAL_TOLERANCE:
-                            cut_indices.append(non_basic_idx)
-                            cut_coeffs.append(f_j)
-
-                # 6. Se il taglio non è vuoto, salvalo
-                # Il taglio è sum(f_j * x_j_non_base) >= f_i
                 if cut_indices:
-                    # In forma standard (<=): -sum(f_j * x_j_non_base) <= -f_i
                     lhs_coeffs = [-c for c in cut_coeffs]
                     rhs_val = -f_i
 
-                    # Creiamo un dizionario completo per il taglio
                     cut_dict = {
-                        'indices': cut_indices, # Indici delle variabili nel taglio
-                        'coeffs': lhs_coeffs,   # Loro coefficienti
+                        'indices': cut_indices,
+                        'coeffs': lhs_coeffs,
                         'rhs': rhs_val,
                         'sense': 'L',
                         'violation': f_i
                     }
                     generated_cuts.append(cut_dict)
 
-                # --- FINE CORREZIONE FONDAMENTALE ---
 
     except cplex.CplexError as e:
         print(f"ERRORE CPLEX durante la generazione dei tagli: {e}")
 
     if not generated_cuts:
-        return [], [], []
+        return []
 
     # Ordina e seleziona i tagli migliori
     generated_cuts.sort(key=lambda x: x['violation'], reverse=True)
-    MAX_CUTS_PER_ITERATION = 50
+    MAX_CUTS_PER_ITERATION = 100
     num_to_add = min(len(generated_cuts), MAX_CUTS_PER_ITERATION)
     print(f"Generati {len(generated_cuts)} tagli validi, verranno aggiunti i {num_to_add} più violati.")
 

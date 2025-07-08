@@ -129,7 +129,7 @@ def get_statistics(name,n_var, n_constraints, optimal_sol, sol, sol_type, status
     if optimal_sol is not None:
         gap = modulus(sol,optimal_sol)
         if abs(optimal_sol)>1e-9:
-            real_gap = gap / (abs(optimal_sol)+1e-10)
+            rel_gap = gap / (abs(optimal_sol)+1e-10)
     stats={
         'instance_name': name,
         'n_vars': n_var,

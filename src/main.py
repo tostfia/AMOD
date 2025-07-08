@@ -16,10 +16,47 @@ def print_menu():
     print("=" * 60)
     print("1. Risolvi tutte le istanze esistenti")
     print("2. Risolvi singola istanza esistente")
-    # --- MODIFICA 2: Cambia il testo delle opzioni per chiarezza ---
     print("3. Genera TUTTE le istanze UFL da config.ini")
-    print("4. Esci")
+    print("4. Risolvi un'istanza grande di or_library")
+    print("5. Esci")
     print("=" * 60)
+
+def analyze_large_instance_interactive():
+    """Menu per selezionare e analizzare un'istanza grande."""
+    # Logica per far scegliere un file all'utente
+    directory = DATA_DIR
+    # Cerca specificamente le istanze grandi
+    files = (list(directory.rglob('capa*.txt')) +
+             list(directory.rglob('capb*.txt')) +
+             list(directory.rglob('capc*.txt')))
+
+    if not files:
+        print("Nessuna istanza grande (capa, capb, capc) trovata in data/instances.")
+        all_files = list(directory.rglob('*.txt'))
+        if all_files:
+            print("Seleziona da tutte le istanze disponibili:")
+            files = all_files
+        else:
+            return
+
+    for i, file_path in enumerate(sorted(files), 1):
+        print(f"{i}. {file_path.name}")
+
+    try:
+        choice = int(input(f"Seleziona un'istanza da analizzare (1-{len(files)}): ")) - 1
+        if 0 <= choice < len(sorted(files)):
+            chosen_file = sorted(files)[choice]
+
+            # --- CHIAMATA AL NUOVO METODO ---
+            model = FacilityLocationModel.from_file(chosen_file)
+            gomory= Gomory(model)
+            gomory.analyze_with_cplex_cuts(chosen_file)
+            # -------------------------------
+
+        else:
+            print("Selezione non valida.")
+    except (ValueError, IndexError):
+        print("Input non valido.")
 
 def process_single_instance(filepath: Path) -> dict | None:
     """
@@ -106,7 +143,7 @@ def process_single_instance_interactive():
 def main():
     while True:
         print_menu()
-        choice = input("Scegli un'opzione (1-4): ").strip()
+        choice = input("Scegli un'opzione (1-5): ").strip()
 
         if choice == '1':
             print("\n--- AVVIO RISOLUZIONE DI TUTTE LE ISTANZE ESISTENTI ---")
@@ -116,7 +153,6 @@ def main():
             print("\n--- SELEZIONA UNA SINGOLA ISTANZA DA RISOLVERE ---")
             process_single_instance_interactive()
 
-        # --- MODIFICA 3: Aggiungi il nuovo caso per la generazione ---
         elif choice == '3':
             print("\n--- AVVIO GENERAZIONE ISTANZE DA CONFIG.INI ---")
             if generate_all_ufl_from_config:
@@ -126,6 +162,8 @@ def main():
             else:
                 print("Funzione di generazione non disponibile. Controlla l'import.")
         elif choice == '4':
+            analyze_large_instance_interactive()
+        elif choice == '5':
             print("Arrivederci!")
             sys.exit()
 
