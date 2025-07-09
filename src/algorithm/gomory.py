@@ -136,7 +136,7 @@ class Gomory:
 
         return generated_cuts
 
-    #metodo principlae di risoluzione
+    #metodo principale di risoluzione
 
     def solve_problem(self, instance_path_str: str, cut_mode: str = 'GFC'):
         instance_path = Path(instance_path_str)

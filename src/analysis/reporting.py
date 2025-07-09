@@ -125,6 +125,18 @@ def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
         print("Errore: la colonna 'instance_name' non è presente nel DataFrame per plot_gap_closure_efficiency.")
         return
 
+    # Escludiamo quelle che erano già ottime e intere al rilassamento LP.
+    original_instance_count = len(df_plot)
+    df_plot = df_plot[df_plot['solution_category'] != 'LP Ottimo Intero'].copy()
+
+    # Controlla se rimangono dati dopo il filtraggio
+    if df_plot.empty:
+        print("Nessuna istanza ha richiesto tagli. Il grafico di efficienza del gap non verrà generato.")
+        return
+
+    filtered_instance_count = len(df_plot)
+    print(f"Info per grafico 'gap_efficiency': Filtrate {original_instance_count - filtered_instance_count} istanze già ottime. Grafico generato su {filtered_instance_count} istanze.")
+
     df_plot['clean_name'] = df_plot['instance_name'].apply(clean_instance_name)
     df_plot['gap_closure_pct'] = df_plot['gap_closure'] * 100
     df_plot = df_plot.sort_values('gap_closure_pct', ascending=False)
