@@ -5,7 +5,7 @@ import random
 from configparser import ConfigParser
 from datetime import datetime
 
-
+# metodi per generare istanze UFL (Uncapacitated Facility Location)
 def get_seed():
     """
     Genera un seed più robusto combinando tempo e ID di processo.
@@ -114,7 +114,7 @@ def generate_all_ufl_from_config(config_file='config.ini'):
             print(f"Errore: Valore non valido nel file di configurazione per il cluster '{cluster}': {e}")
 
 
-
+#prende le statistiche della soluzione e le restituisce in un dizionario
 def get_statistics(name,n_var, n_constraints, optimal_sol, sol, sol_type, status, ncuts, elapsed_time, iterations):
     gap=0
     rel_gap=0
@@ -138,7 +138,7 @@ def get_statistics(name,n_var, n_constraints, optimal_sol, sol, sol_type, status
     }
     return stats
 
-
+# Funzione per calcolare il valore assoluto della differenza tra due numeri
 def modulus(x, y):
     return abs(x - y)
 

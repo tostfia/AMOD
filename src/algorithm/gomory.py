@@ -48,16 +48,18 @@ class Gomory:
         """Genera Tagli Frazionari di Gomory (GFC)."""
         generated_cuts = []
         try:
+            #ottiene lo stato di base delle colonne (variabili) e degli slack (righe)
             basis_col_status, _ = prob.solution.basis.get_basis()
-            values = prob.solution.get_values()
-
+            values = prob.solution.get_values()#ottiene i valori delle variabili nella soluzione corrente
+            #indici delle variabili di base e non di base
             basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
             non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s == prob.solution.basis.status.basic)]
-
+            # Itera su tutte le variabili di base per trovare quelle con valore frazionario
             for var_idx in basic_var_indices:
                 basic_var_value = values[var_idx]
                 fractional_part = basic_var_value - np.floor(basic_var_value)
-
+                # Se la parte frazionaria è significativa (maggiore di una tolleranza numerica),
+                # questa variabile può generare un taglio.
                 if fractional_part > NUMERICAL_TOLERANCE and (1 - fractional_part) > NUMERICAL_TOLERANCE:
                     try:
                         # Ottiene la riga del tableau per la variabile di base corrente
@@ -67,17 +69,18 @@ class Gomory:
 
                     cut_indices, cut_coeffs = [], []
                     for j, non_basic_idx in enumerate(non_basic_var_indices):
+                        # Calcola f_j, la parte frazionaria del coefficiente nel tableau
                         f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
                         if f_j > NUMERICAL_TOLERANCE:
                             cut_indices.append(non_basic_idx)
                             cut_coeffs.append(f_j)
-
+                    # Se il taglio è valido (ha almeno un coefficiente), lo aggiunge alla lista
                     if cut_indices:
                         violation=fractional_part
                         generated_cuts.append({
                             'indices': cut_indices, 'coeffs': cut_coeffs,
                             'rhs':fractional_part, 'sense': 'G', 'violation': violation
-                        })
+                        })# 'G' Greater than or equal to
         except cplex.CplexError as e:
             print(f"ERRORE CPLEX durante la generazione dei tagli GFC: {e}")
 
@@ -112,9 +115,11 @@ class Gomory:
                         f_j = a_ij - np.floor(a_ij)
 
                         # Formula del coefficiente GMI
+                        # Il coefficiente dipende dal fatto che f_j sia minore o maggiore di f_i.
                         if f_j <= f_i + NUMERICAL_TOLERANCE:
                             coeff = f_j
                         else:
+                            # Evita divisione per zero se f_i è vicino a 1
                             if (1 - f_i) > NUMERICAL_TOLERANCE:
                                 coeff = (f_i / (1 - f_i)) * (1 - f_j)
                             else:
@@ -142,10 +147,10 @@ class Gomory:
         instance_path = Path(instance_path_str)
         name = instance_path.stem
 
-        c, A, b = self.solver.get_problem_data(maximize=True)
+        c, A, b = self.solver.get_problem_data(maximize=False)
         self.n_cols_original, n_rows = len(c), len(b)
 
-        optimal_sol = self.solver.determine_optimal(instance_path, maximize=True)
+        optimal_sol = self.solver.determine_optimal(instance_path, maximize=False)
         if optimal_sol is None: return []
 
         tot_stats = []
@@ -154,7 +159,7 @@ class Gomory:
                 # 1. Setup del problema LP iniziale
                 mkp.set_problem_type(mkp.problem_type.LP)
                 mkp.set_problem_name(name + "_LP_Relaxation")
-                mkp.objective.set_sense(mkp.objective.sense.maximize)
+                mkp.objective.set_sense(mkp.objective.sense.minimize)
                 mkp.parameters.preprocessing.presolve.set(0)
                 mkp.parameters.lpmethod.set(mkp.parameters.lpmethod.values.primal)
 
@@ -193,8 +198,6 @@ class Gomory:
                         cuts_to_process = self._generate_gomory_fractional_cuts(mkp)
                     elif cut_mode == 'GMI':
                         cuts_to_process = self._generate_gomory_mixed_integer_cuts(mkp)
-                    elif cut_mode == 'BOTH':
-                        cuts_to_process = self._generate_gomory_fractional_cuts(mkp) + self._generate_gomory_mixed_integer_cuts(mkp)
                     elif cut_mode == 'BEST':
                         cuts_to_process = self._generate_gomory_fractional_cuts(mkp) + self._generate_gomory_mixed_integer_cuts(mkp)
 

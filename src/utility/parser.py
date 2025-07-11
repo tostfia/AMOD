@@ -1,5 +1,5 @@
 
-
+# parser utilizzato solo per le istanze della or-library
 
 def parse_ufl_instance(filename):
     with open(filename, 'r') as file:

@@ -119,7 +119,7 @@ class Solver:
                     rhs_to_add.append(1.0)
                     senses_to_add.append('E') # 'E' per Equality
 
-                # Vincoli di disuguaglianza: y_uv <= x_u  ->  y_uv - x_u <= 0
+                # Vincoli di disuguaglianza: y_uv <= x_u  ->  y_uv - x_u <= 0 strong form
                 for u in range(p):
                     for v in range(r):
                         row_indices = [p + u * r + v, u]

@@ -7,7 +7,7 @@ from analysis.reporting import *
 from config import DATA_DIR, RESULTS_DIR
 
 
-CUT_MODES_AVAILABLE = ['GFC', 'GMI', 'BEST', 'BOTH']
+CUT_MODES_AVAILABLE = ['GFC', 'GMI', 'BEST']
 
 
 def print_menu():
