@@ -56,7 +56,7 @@ def plot_single_instance_convergence(instance_stats: list[dict], output_file: Pa
 
     plt.title(title)
     plt.xlabel('Numero di Iterazioni di Gomory')
-    plt.ylabel('Valore Funzione Obiettivo (Massimizzazione)')
+    plt.ylabel('Valore Funzione Obiettivo ')
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     plt.legend()
     plt.tight_layout()
