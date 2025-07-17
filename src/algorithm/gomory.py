@@ -1,4 +1,6 @@
 import datetime
+from fractions import Fraction
+
 import cplex
 import numpy as np
 from algorithm.solver import Solver, print_solution
@@ -50,100 +52,133 @@ class Gomory:
         try:
             #ottiene lo stato di base delle colonne (variabili) e degli slack (righe)
             basis_col_status, _ = prob.solution.basis.get_basis()
-            values = prob.solution.get_values()#ottiene i valori delle variabili nella soluzione corrente
-            #indici delle variabili di base e non di base
+            values = prob.solution.get_values()
+            all_var_names=prob.variables.get_names()
+
             basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
             non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s == prob.solution.basis.status.basic)]
-            # Itera su tutte le variabili di base per trovare quelle con valore frazionario
-            for var_idx in basic_var_indices:
-                basic_var_value = values[var_idx]
-                fractional_part = basic_var_value - np.floor(basic_var_value)
-                # Se la parte frazionaria è significativa (maggiore di una tolleranza numerica),
-                # questa variabile può generare un taglio.
-                if fractional_part > NUMERICAL_TOLERANCE and (1 - fractional_part) > NUMERICAL_TOLERANCE:
-                    try:
-                        # Ottiene la riga del tableau per la variabile di base corrente
-                        tableau_row_coeffs = np.array(prob.solution.advanced.binvarow(var_idx))
-                    except cplex.CplexError:
-                        continue # Salta se non riesce a ottenere la riga
+            tableau_rows_float = prob.solution.advanced.binvarow()
+            for i,var_idx in enumerate(basic_var_indices):
+                #Uso limit_denominator per evitare problemi di precisione numerica
+                basic_var_value_float = values[var_idx]
+                basic_var_value_frac= Fraction(basic_var_value_float).limit_denominator(100000)
+                floor_val=basic_var_value_frac.numerator//basic_var_value_frac.denominator
+                fractional_part_frac= basic_var_value_frac - floor_val
 
+
+                if fractional_part_frac > NUMERICAL_TOLERANCE and (1 - fractional_part_frac) > NUMERICAL_TOLERANCE:
+                    tableau_row_coeffs_float=tableau_rows_float[i]
                     cut_indices, cut_coeffs = [], []
-                    for j, non_basic_idx in enumerate(non_basic_var_indices):
-                        # Calcola f_j, la parte frazionaria del coefficiente nel tableau
-                        f_j = tableau_row_coeffs[j] - np.floor(tableau_row_coeffs[j])
-                        if f_j > NUMERICAL_TOLERANCE:
-                            cut_indices.append(non_basic_idx)
-                            cut_coeffs.append(f_j)
+                    for non_basic_idx in non_basic_var_indices:
+                        a_j_float=tableau_row_coeffs_float[non_basic_idx]
+                        a_j_frac= Fraction(a_j_float).limit_denominator(100000)
+                        floor_a_j=a_j_frac.numerator//a_j_frac.denominator
+                        f_j_frac=a_j_frac-floor_a_j
+
+                        if abs(f_j_frac)>NUMERICAL_TOLERANCE:
+                            cut_indices.append(all_var_names[non_basic_idx])
+                            cut_coeffs.append(float(f_j_frac))
                     # Se il taglio è valido (ha almeno un coefficiente), lo aggiunge alla lista
                     if cut_indices:
-                        violation=fractional_part
+
                         generated_cuts.append({
                             'indices': cut_indices, 'coeffs': cut_coeffs,
-                            'rhs':fractional_part, 'sense': 'G', 'violation': violation
+                            'rhs':float(fractional_part_frac), 'sense': 'G', 'violation': float(fractional_part_frac)
                         })# 'G' Greater than or equal to
         except cplex.CplexError as e:
             print(f"ERRORE CPLEX durante la generazione dei tagli GFC: {e}")
 
         return generated_cuts
 
-    def _generate_gomory_mixed_integer_cuts(self, prob: cplex.Cplex):
-        """Genera Tagli Misti Interi di Gomory (GMI)."""
-        generated_cuts = []
 
+    def _generate_gomory_mixed_integer_cuts(self, prob: cplex.Cplex):
+        """
+        Genera Tagli Misti Interi di Gomory (GMI) usando l'aritmetica
+        razionale per garantire la stabilità numerica.
+        """
+        generated_cuts = []
         try:
             basis_col_status, _ = prob.solution.basis.get_basis()
             values = prob.solution.get_values()
+            all_var_names = prob.variables.get_names()
 
-            basic_var_indices = [i for i, s in enumerate(basis_col_status)
-                                 if s == prob.solution.basis.status.basic] #cerco qualsiasi var di base come GFC
-            non_basic_var_indices = [i for i, s in enumerate(basis_col_status)
-                                     if not (s == prob.solution.basis.status.basic)]
+            basic_var_indices = [i for i, s in enumerate(basis_col_status) if s == prob.solution.basis.status.basic]
+            non_basic_var_indices = [i for i, s in enumerate(basis_col_status) if not (s == prob.solution.basis.status.basic)]
 
-            for var_idx in basic_var_indices:
-                basic_var_value = values[var_idx]
-                f_i = basic_var_value - np.floor(basic_var_value)
+            tableau_rows_float = prob.solution.advanced.binvarow()
 
-                if f_i > NUMERICAL_TOLERANCE and (1 - f_i) > NUMERICAL_TOLERANCE:
-                    try:
-                        tableau_row_coeffs = np.array(prob.solution.advanced.binvarow(var_idx))
-                    except cplex.CplexError:
-                        continue
+            for i, var_idx in enumerate(basic_var_indices):
+                var_name = all_var_names[var_idx]
 
-                    cut_indices, cut_coeffs = [], []
-                    for j, non_basic_idx in enumerate(non_basic_var_indices):
-                        a_ij = tableau_row_coeffs[j]
-                        f_j = a_ij - np.floor(a_ij)
+                # Applica i tagli GMI solo se la variabile di base è una variabile originale ('x')
+                if not var_name.startswith('x'):
+                    continue
 
-                        # Formula del coefficiente GMI
-                        # Il coefficiente dipende dal fatto che f_j sia minore o maggiore di f_i.
-                        if f_j <= f_i + NUMERICAL_TOLERANCE:
-                            coeff = f_j
-                        else:
-                            # Evita divisione per zero se f_i è vicino a 1
-                            if (1 - f_i) > NUMERICAL_TOLERANCE:
-                                coeff = (f_i / (1 - f_i)) * (1 - f_j)
+                # --- Iniziamo con i float da CPLEX ---
+                basic_var_value_float = values[var_idx]
+
+                # --- Convertiamo in Frazioni per i calcoli ---
+                f_i_frac = Fraction(basic_var_value_float).limit_denominator(100000) - np.floor(basic_var_value_float)
+
+                # Controlla se la frazione è significativa usando la tolleranza
+                if f_i_frac > NUMERICAL_TOLERANCE and (1 - f_i_frac) > NUMERICAL_TOLERANCE:
+                    tableau_row_coeffs_float = tableau_rows_float[i]
+                    cut_indices, cut_coeffs = [], [] # Qui memorizzeremo i float finali
+
+                    for non_basic_idx in non_basic_var_indices:
+                        a_ij_float = tableau_row_coeffs_float[non_basic_idx]
+                        non_basic_var_name = all_var_names[non_basic_idx]
+
+                        if abs(a_ij_float) < NUMERICAL_TOLERANCE:
+                            continue
+
+                        # --- Convertiamo in Frazioni per i calcoli ---
+                        a_ij_frac = Fraction(a_ij_float).limit_denominator(100000)
+                        coeff_frac = Fraction(0) # Inizializza il coefficiente come frazione
+
+                        # --- Applica la formula GMI usando l'aritmetica delle frazioni ---
+                        if non_basic_var_name.startswith('x'):  # Se la variabile non di base è intera
+                            f_j_frac = a_ij_frac - (a_ij_frac.numerator // a_ij_frac.denominator)
+
+                            if f_j_frac <= f_i_frac + NUMERICAL_TOLERANCE:
+                                coeff_frac = f_j_frac
                             else:
-                                continue # Coefficiente non calcolabile, salta
+                                # Controlla la divisione per zero
+                                if (1 - f_i_frac) > NUMERICAL_TOLERANCE:
+                                    coeff_frac = (f_i_frac / (1 - f_i_frac)) * (1 - f_j_frac)
+                                else:
+                                    continue # Salta questo coefficiente
 
-                        if abs(coeff) > NUMERICAL_TOLERANCE:
-                            cut_indices.append(non_basic_idx)
-                            cut_coeffs.append(coeff)
+                        else:  # Se la variabile non di base è continua (slack)
+                            if a_ij_frac >= 0:
+                                coeff_frac = a_ij_frac
+                            else:
+                                # Controlla la divisione per zero
+                                if (1 - f_i_frac) > NUMERICAL_TOLERANCE:
+                                    coeff_frac = (f_i_frac / (1 - f_i_frac)) * (-a_ij_frac)
+                                else:
+                                    continue # Salta questo coefficiente
+
+                        # --- Riconverti a float solo se il coefficiente è significativo ---
+                        if abs(float(coeff_frac)) > NUMERICAL_TOLERANCE:
+                            cut_indices.append(non_basic_var_name)
+                            cut_coeffs.append(float(coeff_frac))
 
                     if cut_indices:
-
-                        violation = f_i
                         generated_cuts.append({
-                                'indices': cut_indices, 'coeffs': cut_coeffs,
-                                'rhs':f_i, 'sense': 'G', 'violation': violation
+                            'indices': cut_indices,
+                            'coeffs': cut_coeffs,
+                            'rhs': float(f_i_frac),
+                            'sense': 'G',
+                            'violation': float(f_i_frac)
                         })
         except cplex.CplexError as e:
             print(f"ERRORE CPLEX durante la generazione dei tagli GMI: {e}")
-
         return generated_cuts
 
-    #metodo principale di risoluzione
+        #metodo principale di risoluzione
 
-    def solve_problem(self, instance_path_str: str, cut_mode: str = 'GFC'):
+    def solve_problem(self, instance_path_str: str, cut_mode: str):
         instance_path = Path(instance_path_str)
         name = instance_path.stem
 
@@ -163,7 +198,7 @@ class Gomory:
                 mkp.parameters.preprocessing.presolve.set(0)
                 mkp.parameters.lpmethod.set(mkp.parameters.lpmethod.values.primal)
 
-                var_names = ["x" + str(i) for i in range(self.n_cols_original)]
+                var_names = [f"x{i}" for i in  range(self.n_cols_original)]
                 mkp.variables.add(obj=c, lb=[0.0] * self.n_cols_original, ub=[1.0] * self.n_cols_original, names=var_names)
                 mkp.linear_constraints.add(
                     lin_expr=[cplex.SparsePair(ind=list(range(self.n_cols_original)), val=A[i]) for i in range(n_rows)],
@@ -187,7 +222,7 @@ class Gomory:
                 MAX_TOTAL_CUTS = 500 # Limite di sicurezza sul numero totale di tagli
 
                 while (total_time <= TIME_LIMIT and num_total_cuts <= MAX_TOTAL_CUTS and
-                       modulus(sol, optimal_sol) / (abs(optimal_sol) + 1e-10) > THRESHOLD_GAP and
+                       modulus(sol, optimal_sol) / (abs(optimal_sol) + 1e-6) > THRESHOLD_GAP and
                        status == "optimal" and iteration <= MAX_ITERATIONS):
 
                     start_iteration_time = datetime.datetime.now()
@@ -211,7 +246,8 @@ class Gomory:
                     cuts_to_add = cuts_to_process[:MAX_CUTS_PER_ITERATION]
 
                     print(f"Iterazione {iteration}: Aggiungendo {len(cuts_to_add)} nuovi tagli (tipo: {cut_mode}).")
-                    num_total_cuts += len(cuts_to_add)
+                    cuts_added_this_iteration=0
+                    instability_detected = False
                     for i, cut_info in enumerate(cuts_to_add):
                         mkp.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(ind=cut_info['indices'], val=cut_info['coeffs'])],
@@ -219,20 +255,36 @@ class Gomory:
                             names=[f"{cut_mode.lower()}_{iteration}_{i}"]
                         )
 
-                    # 3c. Risolvi il modello aggiornato
-                    mkp.solve()
-                    sol, sol_type, status = print_solution(mkp)
+                        # 3c. Risolvi il modello aggiornato
+                        mkp.solve()
+                        current_sol, _, current_status = print_solution(mkp)
+                        if current_status != 'optimal' or current_sol > optimal_sol + NUMERICAL_TOLERANCE:
+                            print(f"AVVISO: Il taglio {i+1} ha causato instabilità o ha superato l'ottimo ({current_sol:.4f} > {optimal_sol:.4f}).")
+                            print("         Rimuovo l'ultimo taglio aggiunto e interrompo l'aggiunta per questa iterazione.")
+                            mkp.linear_constraints.delete(f"{cut_mode.lower()}_{iteration}_{i}")
 
+                            instability_detected = True
+                            break # Esci dal ciclo for, non aggiungere altri tagli in questa iterazione
+                        else:
+                            # Il taglio era valido, aggiorna la soluzione e il conteggio
+                            sol = current_sol
+                            cuts_added_this_iteration += 1
+                            print(f"  -> Taglio {i+1} valido. Nuova soluzione LP: {sol:.4f}")
+                    num_total_cuts += cuts_added_this_iteration
+                    if instability_detected:
+                        print("Stop: rilevata instabilità, interrompo l'aggiunta di tagli per questa iterazione.")
+                        break
                     # 3d. Raccogli statistiche
                     iteration_time = (datetime.datetime.now() - start_iteration_time).total_seconds() * 1000
                     total_time += iteration_time
                     current_stats = get_statistics(name, self.n_cols_original, n_rows + num_total_cuts, optimal_sol, sol, sol_type, status, num_total_cuts, total_time, iteration)
                     tot_stats.append(current_stats)
 
-                    if status != 'optimal':
-                        print(f"STOP: Il problema è diventato {status}.")
+                    if cuts_added_this_iteration == 0 and not instability_detected:
+                        print("STOP: Nessun taglio valido aggiunto in questa iterazione.")
                         break
                     iteration += 1
+
 
                 print(f"\n=== FINE RISOLUZIONE (MODALITÀ {cut_mode}) ===")
                 return tot_stats
