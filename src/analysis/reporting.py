@@ -60,13 +60,59 @@ def plot_single_instance_convergence(instance_stats: list[dict], output_file: Pa
     plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     plt.legend()
     plt.tight_layout()
-
-    plt.savefig(output_file, dpi=300, bbox_inches='tight')
+    out= output_file / f"convergence_{instance_name}.png"
+    plt.savefig(out, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Grafico di convergenza per '{instance_name}' salvato in: {output_file}")
+    print(f"Grafico di convergenza per '{instance_name}' salvato in: {out}")
 
 
 
+
+def plot_cuts_per_iteration(instance_stats: list[dict], output_file: Path):
+    """
+    Crea un grafico a linee che mostra il numero di tagli aggiunti in ogni specifica iterazione.
+    È utile per visualizzare il fenomeno del "tailing-off" (stallo).
+    """
+    # Controlla se ci sono abbastanza dati per un grafico significativo (almeno un'iterazione con tagli)
+    if not instance_stats or len(instance_stats) < 2:
+        print(f"Dati insufficienti per il grafico dei tagli per iterazione di {output_file.stem}.")
+        return
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Convertiamo i dati in un DataFrame pandas per calcolare facilmente la differenza
+    df = pd.DataFrame(instance_stats)
+
+    # Calcoliamo i tagli aggiunti in QUESTA iterazione, che è la differenza
+    # tra il totale tagli di questa riga e quello della riga precedente.
+    # Il primo valore (iterazione 0) sarà NaN, che riempiamo correttamente con 0.
+    df['cuts_added'] = df['n_cuts'].diff().fillna(0)
+
+    # Creazione del grafico
+    plt.figure(figsize=(12, 7))
+
+    # Usiamo un line plot con marcatori per vedere i punti esatti
+    plt.plot(df['iterations'], df['cuts_added'], 'o-', color='purple', label='Tagli Aggiunti per Iterazione')
+
+    # Titoli e etichette
+    instance_name = clean_instance_name(df['instance_name'].iloc[0])
+    plt.title(f'Numero di Tagli Aggiunti per Iterazione - Istanza: {instance_name}')
+    plt.xlabel('Numero di Iterazioni di Gomory')
+    plt.ylabel('Numero di Tagli Aggiunti')
+
+    # Assicura che gli assi mostrino solo numeri interi
+    plt.gca().xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    plt.gca().yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+
+    plt.legend()
+    plt.grid(True, linestyle='--')
+    plt.tight_layout()
+
+    # Salvataggio del file
+    out= output_file / f"cuts_per_iteration_{instance_name}.png"
+    plt.savefig(out , dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Grafico dei tagli per iterazione per '{instance_name}' salvato in: {out}")
 
 
 

@@ -12,6 +12,6 @@ MODEL_DIR = PROJECT_ROOT / "model"
 
 # Parametri esperimenti
 TIME_LIMIT = 3600  # secondi
-THRESHOLD_GAP = 1e-6 # tolleranza per i risultati
+THRESHOLD_GAP = 0.001 # tolleranza per i risultati
 MAX_ITERATIONS = 1000
-NUMERICAL_TOLERANCE = 1e-5
+NUMERICAL_TOLERANCE = 0.001

@@ -76,10 +76,10 @@ def process_single_instance_interactive():
             # Plotting condizionale
             if len(all_stats) > 1:
                 print(f"--> Istanza ha richiesto tagli. Genero grafico di convergenza.")
-                report_dir = RESULTS_DIR / "single_instance_reports" / instance_name
+                report_dir = RESULTS_DIR / f"single_instance_reports_{mode}" / instance_name
                 report_dir.mkdir(parents=True, exist_ok=True)
-                plot_path = report_dir / f"convergence_{instance_name}_{mode}.png"
-                plot_single_instance_convergence(all_stats, plot_path)
+                plot_single_instance_convergence(all_stats,report_dir)
+                plot_cuts_per_iteration(all_stats,report_dir)
 
             # Preparazione riassunto (codice duplicato da sopra, si potrebbe refattorizzare in una funzione helper)
             initial_stats, final_stats = all_stats[0], all_stats[-1]
@@ -159,8 +159,8 @@ def process_all_instances_for_one_mode(mode: str):
                 report_dir = RESULTS_DIR / f"report_{mode}"
                 plot_dir = report_dir / "convergence_plots" / instance_name
                 plot_dir.mkdir(parents=True, exist_ok=True)
-                plot_path = plot_dir / f"convergence_{instance_name}.png"
-                plot_single_instance_convergence(all_stats, plot_path)
+                plot_single_instance_convergence(all_stats, plot_dir)
+                plot_cuts_per_iteration(all_stats, plot_dir)
             else:
                 print(f"--> L'istanza è stata risolta al rilassamento LP iniziale. Grafico di convergenza non necessario.")
 

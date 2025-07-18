@@ -44,6 +44,7 @@ class Gomory:
         # dalle variabili di slack/ausiliarie.
         self.n_cols_original = 0
 
+
     #metodi privati per la scelta della modalità di taglio
 
     def _generate_gomory_fractional_cuts(self, prob: cplex.Cplex):
@@ -61,7 +62,7 @@ class Gomory:
             for i,var_idx in enumerate(basic_var_indices):
                 #Uso limit_denominator per evitare problemi di precisione numerica
                 basic_var_value_float = values[var_idx]
-                basic_var_value_frac= Fraction(basic_var_value_float).limit_denominator(100000)
+                basic_var_value_frac= Fraction(basic_var_value_float).limit_denominator(1000000)
                 floor_val=basic_var_value_frac.numerator//basic_var_value_frac.denominator
                 fractional_part_frac= basic_var_value_frac - floor_val
 
@@ -71,7 +72,7 @@ class Gomory:
                     cut_indices, cut_coeffs = [], []
                     for non_basic_idx in non_basic_var_indices:
                         a_j_float=tableau_row_coeffs_float[non_basic_idx]
-                        a_j_frac= Fraction(a_j_float).limit_denominator(100000)
+                        a_j_frac= Fraction(a_j_float).limit_denominator(1000000)
                         floor_a_j=a_j_frac.numerator//a_j_frac.denominator
                         f_j_frac=a_j_frac-floor_a_j
 
@@ -118,7 +119,7 @@ class Gomory:
                 basic_var_value_float = values[var_idx]
 
                 # --- Convertiamo in Frazioni per i calcoli ---
-                f_i_frac = Fraction(basic_var_value_float).limit_denominator(100000) - np.floor(basic_var_value_float)
+                f_i_frac = Fraction(basic_var_value_float).limit_denominator(1000000) - np.floor(basic_var_value_float)
 
                 # Controlla se la frazione è significativa usando la tolleranza
                 if f_i_frac > NUMERICAL_TOLERANCE and (1 - f_i_frac) > NUMERICAL_TOLERANCE:
@@ -234,55 +235,69 @@ class Gomory:
                     elif cut_mode == 'GMI':
                         cuts_to_process = self._generate_gomory_mixed_integer_cuts(mkp)
                     elif cut_mode == 'BEST':
-                        cuts_to_process = self._generate_gomory_fractional_cuts(mkp) + self._generate_gomory_mixed_integer_cuts(mkp)
+                        cuts_gmi= self._generate_gomory_mixed_integer_cuts(mkp)
+                        cuts_gfc = self._generate_gomory_fractional_cuts(mkp)
+                        # Combina i migliori tagli da entrambi i metodi invece di scegliere un solo tipo
+                        cuts_gmi.sort(key=lambda x: x.get('violation', 0), reverse=True)
+                        cuts_gfc.sort(key=lambda x: x.get('violation', 0), reverse=True)
+
+                        # Prendi i migliori tagli da entrambe le liste in modo alternato
+                        cuts_to_process = []
+                        for i in range(min(len(cuts_gmi), len(cuts_gfc))):
+                            if i < len(cuts_gmi) and cuts_gmi[i]['violation'] > NUMERICAL_TOLERANCE:
+                                cuts_to_process.append(cuts_gmi[i])
+                            if i < len(cuts_gfc) and cuts_gfc[i]['violation'] > NUMERICAL_TOLERANCE:
+                                cuts_to_process.append(cuts_gfc[i])
 
                     if not cuts_to_process:
                         print("STOP: Nessun nuovo taglio generato.")
                         break
 
                     # 3b. Seleziona i tagli migliori e aggiungili
-                    cuts_to_process.sort(key=lambda x: x.get('violation', 0), reverse=True)
-                    MAX_CUTS_PER_ITERATION = 10
+                    cuts_to_process.sort(key=lambda x: (
+                        x.get('violation', 0),  # Primo criterio: violazione
+                        sum(abs(c) for c in x['coeffs'])  # Secondo criterio: "forza" del taglio
+                    ), reverse=True)
+
+                    cuts_added_this_iteration = 0
+                    MAX_CUTS_PER_ITERATION=100
+
                     cuts_to_add = cuts_to_process[:MAX_CUTS_PER_ITERATION]
 
                     print(f"Iterazione {iteration}: Aggiungendo {len(cuts_to_add)} nuovi tagli (tipo: {cut_mode}).")
-                    cuts_added_this_iteration=0
-                    instability_detected = False
+
+
                     for i, cut_info in enumerate(cuts_to_add):
+                        cut_name=f"{cut_mode.lower()}_{iteration}_{i}"
                         mkp.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(ind=cut_info['indices'], val=cut_info['coeffs'])],
                             senses=[cut_info['sense']], rhs=[cut_info['rhs']],
-                            names=[f"{cut_mode.lower()}_{iteration}_{i}"]
+                            names=[cut_name]
                         )
 
                         # 3c. Risolvi il modello aggiornato
                         mkp.solve()
                         current_sol, _, current_status = print_solution(mkp)
                         if current_status != 'optimal' or current_sol > optimal_sol + NUMERICAL_TOLERANCE:
-                            print(f"AVVISO: Il taglio {i+1} ha causato instabilità o ha superato l'ottimo ({current_sol:.4f} > {optimal_sol:.4f}).")
-                            print("         Rimuovo l'ultimo taglio aggiunto e interrompo l'aggiunta per questa iterazione.")
-                            mkp.linear_constraints.delete(f"{cut_mode.lower()}_{iteration}_{i}")
+                            print(f"AVVISO: Il taglio {i+1} ha causato instabilità.")
+                            mkp.linear_constraints.delete(cut_name)
 
-                            instability_detected = True
-                            break # Esci dal ciclo for, non aggiungere altri tagli in questa iterazione
                         else:
-                            # Il taglio era valido, aggiorna la soluzione e il conteggio
-                            sol = current_sol
+                            sol= current_sol
                             cuts_added_this_iteration += 1
-                            print(f"  -> Taglio {i+1} valido. Nuova soluzione LP: {sol:.4f}")
+                            print(f"  -> Taglio {i+1} (viol: {cut_info['violation']:.4f}) stabile. Aggiunto. Nuova sol: {sol:.4f}")
                     num_total_cuts += cuts_added_this_iteration
-                    if instability_detected:
-                        print("Stop: rilevata instabilità, interrompo l'aggiunta di tagli per questa iterazione.")
+                    if cuts_added_this_iteration == 0 :
+                        print("STOP: Nessun taglio valido aggiunto in questa iterazione.")
                         break
+
                     # 3d. Raccogli statistiche
                     iteration_time = (datetime.datetime.now() - start_iteration_time).total_seconds() * 1000
                     total_time += iteration_time
                     current_stats = get_statistics(name, self.n_cols_original, n_rows + num_total_cuts, optimal_sol, sol, sol_type, status, num_total_cuts, total_time, iteration)
                     tot_stats.append(current_stats)
 
-                    if cuts_added_this_iteration == 0 and not instability_detected:
-                        print("STOP: Nessun taglio valido aggiunto in questa iterazione.")
-                        break
+
                     iteration += 1
 
 
