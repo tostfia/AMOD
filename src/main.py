@@ -16,7 +16,8 @@ def print_menu():
     print("1. Risolvi tutte le istanze esistenti")
     print("2. Risolvi singola istanza esistente")
     print("3. Genera TUTTE le istanze UFL da config.ini")
-    print("4. Esci")
+    print("4. Genera TUTTE le istanza UFL in tutte le modalità")
+    print("5. Esci")
     print("=" * 60)
 
 
@@ -200,13 +201,83 @@ def process_all_instances_for_one_mode(mode: str):
         report_dir = RESULTS_DIR / f"report_{mode}"
         save_summary_report(all_summaries, report_dir)
 
+def process_all_instances_all_modes():
+    """
+    Esegue TUTTE le modalità di taglio su TUTTE le istanze
+    e salva un unico report CSV completo.
+    """
+    directory = DATA_DIR
+    txt_files = sorted(list(directory.rglob('*.txt')))
+    if not txt_files:
+        print("Nessun file .txt trovato.")
+        return
 
+    # Lista per contenere i riepiloghi di TUTTE le esecuzioni
+    all_runs_summaries = []
+
+    for file_path in txt_files:
+        instance_name = file_path.stem
+        print("\n" + "="*60 + f"\nELABORAZIONE ISTANZA: {instance_name}\n" + "="*60)
+
+        # Per ogni istanza, cicla attraverso le modalità
+        for mode in ['GFC', 'GMI', 'BEST']:
+            print(f"\n---> Esecuzione in modalità: {mode}")
+            try:
+                model = FacilityLocationModel.from_file(file_path)
+                gomory_solver = Gomory(model)
+                all_stats = gomory_solver.solve_problem(str(file_path), cut_mode=mode)
+
+                if not all_stats:
+                    print(f"ATTENZIONE: Nessuna statistica per {instance_name} in modalità {mode}.")
+                    continue
+
+                initial_stats, final_stats = all_stats[0], all_stats[-1]
+                initial_gap = initial_stats.get('relative_gap', 1)
+                final_gap = final_stats.get('relative_gap', 1)
+                status = final_stats.get('status', 'unknown')
+                category = 'Errore'
+                if status == 'optimal' and initial_gap < 1e-6:
+                    category = 'LP Ottimo Intero'
+                elif status == 'optimal' and final_gap < THRESHOLD_GAP:
+                    category = 'Risolto con Tagli'
+                elif status == 'optimal':
+                    category = 'Limite Raggiunto (Gap Residuo)'
+                else:
+                    category = f'Non Risolto ({status})'
+                summary = {
+                    'instance_name': instance_name, 'cut_mode': mode,
+                    'initial_gap': initial_stats.get('relative_gap', 0),
+                    'final_gap': final_stats.get('relative_gap', 0),
+                    'gap_closure': initial_stats.get('relative_gap', 0) - final_stats.get('relative_gap', 0),
+                    'total_cuts': final_stats.get('n_cuts', 0),
+                    'total_iterations': final_stats.get('iterations', 0),
+                    'total_time_ms': final_stats.get('elapsed_time', 0),
+                    'final_status': final_stats.get('status', 'unknown'),
+                    'solution_category': category
+                }
+
+                all_runs_summaries.append(summary)
+
+            except Exception as e:
+                print(f"\U0001F6AB Errore critico durante l'elaborazione di {file_path.name}: {e}")
+                traceback.print_exc()
+
+    # Dopo aver eseguito tutto, salva il report CSV completo
+    if all_runs_summaries:
+        report_dir = RESULTS_DIR
+        report_dir.mkdir(parents=True, exist_ok=True)
+
+        df_all_runs = pd.DataFrame(all_runs_summaries)
+        csv_path = report_dir / "_summary_ALL_MODES.csv"
+        df_all_runs.to_csv(csv_path, index=False)
+        print(f"\n\nReport CSV completo di tutte le modalità salvato in: {csv_path}")
+        plot_combined_summary(csv_path)
 
 
 def main():
     while True:
         print_menu()
-        choice = input("Scegli un'opzione (1-4): ").strip()
+        choice = input("Scegli un'opzione (1-5): ").strip()
 
         if choice == '1':
             print("\n--- AVVIO RISOLUZIONE DI TUTTE LE ISTANZE ESISTENTI ---")
@@ -234,8 +305,11 @@ def main():
                 print("Puoi ora risolverle usando l'opzione '1' o '2'.")
             except Exception as e:
                 print(f"\U0001F6AB Errore durante la generazione delle istanze: {e}")
-
         elif choice == '4':
+            print("\n--- AVVIO RISOLUZIONE DI TUTTE LE ISTANZE IN TUTTE LE MODALITÀ ---")
+            process_all_instances_all_modes()
+
+        elif choice == '5':
             print("Arrivederci!")
             sys.exit()
 

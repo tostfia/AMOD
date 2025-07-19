@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from pathlib import Path
+
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.patches import Patch
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette('muted')
 
@@ -307,3 +310,98 @@ def save_summary_report(all_summaries: list[dict], output_dir: Path):
     plot_computational_cost(df, output_dir)
 
     print("...Grafici generati con successo.")
+
+
+def plot_combined_summary(csv_path: Path):
+    """
+    Crea un grafico riassuntivo che mostra le performance combinate
+    di tutte le modalità di taglio.
+    """
+    if not csv_path.exists():
+        print(f"Errore: File di riepilogo '{csv_path}' non trovato.")
+        return
+
+    df = pd.read_csv(csv_path)
+
+    # --- Analisi dei Dati ---
+    # 1. Trova il miglior risultato per ogni istanza
+    #    idx = df.groupby('instance_name')['gap_closure'].idxmax()
+    #    df_best = df.loc[idx].set_index('instance_name')
+
+    # Un approccio migliore: calcoliamo una categoria combinata
+    summary_data = []
+    for name, group in df.groupby('instance_name'):
+        # Se ALMENO UNA modalità ha risolto l'istanza, è 'Risolto'.
+        if 'Risolto con Tagli' in group['solution_category'].values:
+            category = 'Risolto (da almeno una modalità)'
+            # Prendiamo il gap closure della modalità che l'ha risolto
+            gap_closure = group[group['solution_category'] == 'Risolto con Tagli']['gap_closure'].iloc[0]
+        # Se nessuna l'ha risolta, ma almeno una è LP Ottimo Intero
+        elif 'LP Ottimo Intero' in group['solution_category'].values:
+            category = 'LP Ottimo Intero'
+            gap_closure = 0.0
+        # Altrimenti, è 'Limite Raggiunto'. Calcoliamo la MIGLIORE chiusura del gap.
+        else:
+            category = 'Limite Raggiunto (Miglior Tentativo)'
+            gap_closure = group['gap_closure'].max()
+
+        summary_data.append({'instance_name': name, 'category': category, 'best_gap_closure_pct': gap_closure * 100})
+
+    df_summary = pd.DataFrame(summary_data)
+    df_summary['clean_name'] = df_summary['instance_name'].apply(clean_instance_name)
+    df_summary = df_summary.sort_values('clean_name')
+
+    # --- Creazione del Grafico ---
+    fig, ax = plt.subplots(figsize=(24, 12))
+
+
+    # Categoria 'LP Ottimo Intero'
+    subset_green = df_summary[df_summary['category'] == 'LP Ottimo Intero']
+    ax.bar(subset_green['clean_name'], [1] * len(subset_green), color='forestgreen', label='LP Ottimo Intero')
+
+    # Categoria 'Risolto'
+    subset_blue = df_summary[df_summary['category'] == 'Risolto (da almeno una modalità)']
+    ax.bar(subset_blue['clean_name'], [1] * len(subset_blue), color='dodgerblue', label='Risolto (da almeno una modalità)')
+
+    # --- NUOVA LOGICA PER IL "TERMOMETRO" ARANCIONE ---
+    subset_orange = df_summary[df_summary['category'] == 'Limite Raggiunto (Miglior Tentativo)']
+
+    cmap = plt.get_cmap('YlOrRd') # Yellow-Orange-Red
+    norm = plt.Normalize(vmin=0, vmax=max(1.0, subset_orange['best_gap_closure_pct'].max()))
+
+    for _, row in subset_orange.iterrows():
+        gap_pct = row['best_gap_closure_pct']
+        # Mappiamo la percentuale a un colore: 0% -> chiaro, 100% -> scuro
+        bar_color = cmap(norm(gap_pct))
+        ax.bar(row['clean_name'], 1, color=bar_color)
+
+    # Impostazioni del Grafico
+    ax.set_title('Efficacia Combinata di Tutti i Metodi di Taglio', fontsize=20, fontweight='bold')
+    ax.set_xlabel('Istanza del Problema', fontsize=14)
+    ax.set_ylabel('Stato della Soluzione', fontsize=14)
+    plt.xticks(rotation=90, fontsize=9)
+    ax.set_yticks([]) # Nascondi i tick dell'asse y
+
+    # Crea una legenda combinata
+    legend_elements = [Patch(facecolor='forestgreen', label='LP Ottimo Intero'),
+                       Patch(facecolor='dodgerblue', label='Risolto (da almeno una modalità)')]
+    ax.legend(handles=legend_elements, fontsize=12, title='Categoria Risultato', loc='upper left')
+
+    # Aggiungi una colorbar separata per spiegare il "termometro"
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="2%", pad=0.1)
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([]) # Devi passare un array vuoto
+    cbar = plt.colorbar(sm, cax=cax)
+    cbar.set_label('Percentuale di Gap Chiuso (%) per Istanze Non Risolte', rotation=270, labelpad=20, fontsize=12)
+
+
+    plt.tight_layout()
+
+    # Salva il grafico
+    output_path = Path("results") / "_summary_COMBINED_ANALYSIS.png"
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+    print(f"\nGrafico di analisi combinata salvato in: {output_path}")
