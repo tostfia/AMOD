@@ -6,6 +6,9 @@ from pathlib import Path
 
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.patches import Patch
+
+from config import MAX_ITERATIONS
+
 plt.style.use('seaborn-v0_8-whitegrid')
 sns.set_palette('muted')
 
@@ -45,6 +48,17 @@ def plot_single_instance_convergence(instance_stats: list[dict], output_file: Pa
 
     plot_style = 'o' if len(iterations) == 1 else 'o-'
     plt.plot(iterations, objective_values, plot_style, color='b', label='Valore LP con Tagli')
+
+    last_iteration = iterations[-1]
+    last_value = objective_values[-1]
+
+    if last_iteration < MAX_ITERATIONS:
+        #Crea i punti per la linea orizzontale
+        # che va dall'ultimo punto calcolato fino a MAX_ITERATIONS
+        line_x = [last_iteration, MAX_ITERATIONS]
+        line_y = [last_value, last_value]
+        # Disegna la linea orizzontale in blu, senza marcatori, per dare continuità
+        plt.plot(line_x, line_y, color='blue', linestyle='-')
 
     if initial_lp_value is not None:
         plt.axhline(y=initial_lp_value, color='r', linestyle='--', label=f'LP Iniziale ({initial_lp_value:.2f})')
@@ -332,7 +346,7 @@ def plot_combined_summary(csv_path: Path):
     summary_data = []
     for name, group in df.groupby('instance_name'):
         # Se ALMENO UNA modalità ha risolto l'istanza, è 'Risolto'.
-        if 'Risolto con Tagli' in group['solution_category'].values:
+        if 'Risolto con Tagli' in group['solution_category'].values and group['final_gap'].min() < 1e-5:
             category = 'Risolto (da almeno una modalità)'
             # Prendiamo il gap closure della modalità che l'ha risolto
             gap_closure = group[group['solution_category'] == 'Risolto con Tagli']['gap_closure'].iloc[0]

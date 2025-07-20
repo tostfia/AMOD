@@ -261,7 +261,7 @@ class Gomory:
                     ), reverse=True)
 
                     cuts_added_this_iteration = 0
-                    MAX_CUTS_PER_ITERATION=500
+
 
 
 
@@ -269,9 +269,7 @@ class Gomory:
 
 
                     for i, cut_info in enumerate(cuts_to_process):
-                        if cuts_added_this_iteration >= MAX_CUTS_PER_ITERATION:
-                            print(f"  -> Limite di {MAX_CUTS_PER_ITERATION} tagli per iterazione raggiunto.")
-                            break
+
                         cut_name=f"{cut_mode.lower()}_{iteration}_{i}"
                         mkp.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(ind=cut_info['indices'], val=cut_info['coeffs'])],
@@ -281,6 +279,7 @@ class Gomory:
 
                         # 3c. Risolvi il modello aggiornato
                         mkp.solve()
+
                         current_sol, _, current_status = print_solution(mkp)
                         if current_status != 'optimal' or current_sol > optimal_sol + NUMERICAL_TOLERANCE:
                             print(f"AVVISO: Il taglio {i+1} ha causato instabilità.")
@@ -296,6 +295,7 @@ class Gomory:
                     if cuts_added_this_iteration == 0 :
                         print("STOP: Nessun taglio valido aggiunto in questa iterazione.")
                         break
+
                     # 3d. Raccogli statistiche
                     iteration_time = (datetime.datetime.now() - start_iteration_time).total_seconds() * 1000
                     total_time += iteration_time

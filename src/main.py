@@ -8,6 +8,71 @@ from config import DATA_DIR, RESULTS_DIR
 
 CUT_MODES_AVAILABLE = ['GFC', 'GMI', 'BEST']
 
+def categorize_solution(status, initial_gap, final_gap):
+    """Determina la categoria di soluzione in base a stato e gap."""
+    if status == 'optimal' and initial_gap < 1e-6:
+        return 'LP Ottimo Intero'
+    elif status == 'optimal' and final_gap < THRESHOLD_GAP:
+        return 'Risolto con Tagli'
+    elif status == 'optimal':
+        return 'Limite Raggiunto (Gap Residuo)'
+    else:
+        return f'Non Risolto ({status})'
+
+def create_solution_summary(instance_name, mode, all_stats):
+    """Crea un dizionario di riepilogo dai risultati dell'algoritmo."""
+    if not all_stats:
+        return None
+
+    initial_stats, final_stats = all_stats[0], all_stats[-1]
+    initial_gap = initial_stats.get('relative_gap', 1)
+    final_gap = final_stats.get('relative_gap', 1)
+    status = final_stats.get('status', 'unknown')
+
+    category = categorize_solution(status, initial_gap, final_gap)
+
+    return {
+        'instance_name': instance_name,
+        'cut_mode': mode,
+        'initial_gap': initial_gap,
+        'final_gap': final_gap,
+        'gap_closure': initial_gap - final_gap,
+        'total_cuts': final_stats.get('n_cuts', 0),
+        'total_iterations': final_stats.get('iterations', 0),
+        'total_time_ms': final_stats.get('elapsed_time', 0),
+        'final_status': status,
+        'solution_category': category
+    }
+def process_instance(file_path, mode, generate_plots=True):
+    """Elabora una singola istanza con una modalità specificata."""
+    instance_name = file_path.stem
+    print(f"\n-> Elaborazione: {instance_name} [Modalità: {mode}]")
+
+    try:
+        model = FacilityLocationModel.from_file(file_path)
+        gomory_solver = Gomory(model)
+        all_stats = gomory_solver.solve_problem(str(file_path), cut_mode=mode)
+
+        if not all_stats:
+            print(f"Nessuna statistica per {instance_name} in modalità {mode}.")
+            return None
+
+        # Genera grafici se richiesto e se abbiamo tagli
+        if generate_plots and len(all_stats) > 1:
+            print(f"--> L'istanza ha richiesto tagli. Genero grafico di convergenza.")
+            report_dir = RESULTS_DIR / f"report_{mode}" / "convergence_plots" / instance_name
+            report_dir.mkdir(parents=True, exist_ok=True)
+            plot_single_instance_convergence(all_stats, report_dir)
+            plot_cuts_per_iteration(all_stats, report_dir)
+        elif len(all_stats) == 1:
+            print(f"--> L'istanza è stata risolta al rilassamento LP iniziale. Grafico di convergenza non necessario.")
+
+        return create_solution_summary(instance_name, mode, all_stats)
+
+    except Exception as e:
+        print(f"\U0001F6AB Errore nell'elaborazione di {instance_name}: {e}")
+        traceback.print_exc()
+        return None
 
 def print_menu():
     print("\n" + "=" * 60)
@@ -16,18 +81,13 @@ def print_menu():
     print("1. Risolvi tutte le istanze esistenti")
     print("2. Risolvi singola istanza esistente")
     print("3. Genera TUTTE le istanze UFL da config.ini")
-    print("4. Genera TUTTE le istanza UFL in tutte le modalità")
+    print("4. Risolvi le istanza UFL in tutte le modalità")
     print("5. Esci")
     print("=" * 60)
 
 
-
-
 def process_single_instance_interactive():
-    """
-    Permette all'utente di scegliere un'istanza e poi la modalità di taglio
-    da applicare (una o tutte).
-    """
+    """Permette all'utente di scegliere un'istanza e la modalità di taglio."""
     # 1. Scelta dell'istanza
     txt_files = sorted(list(DATA_DIR.rglob('*.txt')))
     if not txt_files:
@@ -46,7 +106,7 @@ def process_single_instance_interactive():
         selected_file = txt_files[choice]
         instance_name = selected_file.stem
 
-        # Scelta della modalità di taglio
+        # 2. Scelta della modalità di taglio
         print("\nScegli la modalità di taglio:")
         for i, mode in enumerate(CUT_MODES_AVAILABLE):
             print(f"{i+1}. {mode}")
@@ -63,59 +123,21 @@ def process_single_instance_interactive():
             print("Selezione modalità non valida.")
             return
 
-        #  Esecuzione e raccolta risultati
+        # 3. Esecuzione e raccolta risultati
         all_summaries = []
-        model = FacilityLocationModel.from_file(selected_file)
-        gomory_solver = Gomory(model)
-
         for mode in modes_to_run:
             print(f"\n-> Esecuzione su {instance_name} [Modalità: {mode}]")
-            all_stats = gomory_solver.solve_problem(str(selected_file), cut_mode=mode)
+            summary = process_instance(selected_file, mode)
+            if summary:
+                all_summaries.append(summary)
 
-            if not all_stats: continue
-
-            # Plotting condizionale
-            if len(all_stats) > 1:
-                print(f"--> Istanza ha richiesto tagli. Genero grafico di convergenza.")
-                report_dir = RESULTS_DIR / f"single_instance_reports_{mode}" / instance_name
-                report_dir.mkdir(parents=True, exist_ok=True)
-                plot_single_instance_convergence(all_stats,report_dir)
-                plot_cuts_per_iteration(all_stats,report_dir)
-
-            # Preparazione riassunto (codice duplicato da sopra, si potrebbe refattorizzare in una funzione helper)
-            initial_stats, final_stats = all_stats[0], all_stats[-1]
-            initial_gap = initial_stats.get('relative_gap', 1)
-            final_gap = final_stats.get('relative_gap', 1)
-            status = final_stats.get('status', 'unknown')
-            category = 'Errore'
-            if status == 'optimal' and initial_gap < 1e-6:
-                category = 'LP Ottimo Intero'
-            elif status == 'optimal' and final_gap < THRESHOLD_GAP:
-                category = 'Risolto con Tagli'
-            elif status == 'optimal':
-                category = 'Limite Raggiunto (Gap Residuo)'
-            else:
-                category = f'Non Risolto ({status})'
-            summary = {
-                'instance_name': instance_name, 'cut_mode': mode,
-                'initial_gap': initial_stats.get('relative_gap', 0),
-                'final_gap': final_stats.get('relative_gap', 0),
-                'gap_closure': initial_stats.get('relative_gap', 0) - final_stats.get('relative_gap', 0),
-                'total_cuts': final_stats.get('n_cuts', 0),
-                'total_iterations': final_stats.get('iterations', 0),
-                'total_time_ms': final_stats.get('elapsed_time', 0),
-                'final_status': final_stats.get('status', 'unknown'),
-                'solution_category': category
-            }
-            all_summaries.append(summary)
-
-        #Stampa e Reporting finale
+        # 4. Stampa e Reporting finale
         if all_summaries:
             print("\n--- Riepilogo Risultati a Schermo ---")
             for s in all_summaries:
                 print(f"Modalità: {s['cut_mode']:<5} | Stato: {s['final_status']:<25} | Gap Finale: {s['final_gap']:.4f} | Iter: {s['total_iterations']}")
 
-            # Se abbiamo eseguito più modalità, ha senso generare un report comparativo
+            # Se abbiamo eseguito più modalità, genera un report comparativo
             if len(all_summaries) > 1:
                 print("\nGenerazione report comparativo per la singola istanza...")
                 report_dir = RESULTS_DIR / "single_instance_reports" / instance_name
@@ -142,64 +164,15 @@ def process_all_instances_for_one_mode(mode: str):
 
     all_summaries = []
     for file_path in txt_files:
-        instance_name = file_path.stem
-        print(f"\n-> Elaborazione: {instance_name} [Modalità: {mode}]")
-
-        try:
-            model = FacilityLocationModel.from_file(file_path)
-            gomory_solver = Gomory(model)
-            all_stats = gomory_solver.solve_problem(str(file_path), cut_mode=mode)
-
-            if not all_stats:
-                print(f"Nessuna statistica per {instance_name} in modalità {mode}.")
-                continue
-
-            if len(all_stats) > 1:
-                print(f"--> L'istanza ha richiesto tagli. Genero grafico di convergenza.")
-                # Genera il grafico di convergenza solo se significativo
-                report_dir = RESULTS_DIR / f"report_{mode}"
-                plot_dir = report_dir / "convergence_plots" / instance_name
-                plot_dir.mkdir(parents=True, exist_ok=True)
-                plot_single_instance_convergence(all_stats, plot_dir)
-                plot_cuts_per_iteration(all_stats, plot_dir)
-            else:
-                print(f"--> L'istanza è stata risolta al rilassamento LP iniziale. Grafico di convergenza non necessario.")
-
-            initial_stats, final_stats = all_stats[0], all_stats[-1]
-            initial_gap = initial_stats.get('relative_gap', 1)
-            final_gap = final_stats.get('relative_gap', 1)
-            status = final_stats.get('status', 'unknown')
-            category = 'Errore'
-            if status == 'optimal' and initial_gap < 1e-6:
-                category = 'LP Ottimo Intero'
-            elif status == 'optimal' and final_gap < THRESHOLD_GAP:
-                category = 'Risolto con Tagli'
-            elif status == 'optimal':
-                category = 'Limite Raggiunto (Gap Residuo)'
-            else:
-                category = f'Non Risolto ({status})'
-
-            summary = {
-                'instance_name': instance_name, 'cut_mode': mode,
-                'initial_gap': initial_stats.get('relative_gap', 0),
-                'final_gap': final_stats.get('relative_gap', 0),
-                'gap_closure': initial_stats.get('relative_gap', 0) - final_stats.get('relative_gap', 0),
-                'total_cuts': final_stats.get('n_cuts', 0),
-                'total_iterations': final_stats.get('iterations', 0),
-                'total_time_ms': final_stats.get('elapsed_time', 0),
-                'final_status': final_stats.get('status', 'unknown'),
-                'solution_category': category
-            }
+        summary = process_instance(file_path, mode)
+        if summary:
             all_summaries.append(summary)
-
-        except Exception as e:
-            print(f"\U0001F6AB Errore critico durante l'elaborazione di {file_path.name}: {e}")
-            traceback.print_exc()
 
     if all_summaries:
         # Salva il report in una sottocartella specifica per la modalità
         report_dir = RESULTS_DIR / f"report_{mode}"
         save_summary_report(all_summaries, report_dir)
+
 
 def process_all_instances_all_modes():
     """
@@ -220,47 +193,11 @@ def process_all_instances_all_modes():
         print("\n" + "="*60 + f"\nELABORAZIONE ISTANZA: {instance_name}\n" + "="*60)
 
         # Per ogni istanza, cicla attraverso le modalità
-        for mode in ['GFC', 'GMI', 'BEST']:
+        for mode in CUT_MODES_AVAILABLE:
             print(f"\n---> Esecuzione in modalità: {mode}")
-            try:
-                model = FacilityLocationModel.from_file(file_path)
-                gomory_solver = Gomory(model)
-                all_stats = gomory_solver.solve_problem(str(file_path), cut_mode=mode)
-
-                if not all_stats:
-                    print(f"ATTENZIONE: Nessuna statistica per {instance_name} in modalità {mode}.")
-                    continue
-
-                initial_stats, final_stats = all_stats[0], all_stats[-1]
-                initial_gap = initial_stats.get('relative_gap', 1)
-                final_gap = final_stats.get('relative_gap', 1)
-                status = final_stats.get('status', 'unknown')
-                category = 'Errore'
-                if status == 'optimal' and initial_gap < 1e-6:
-                    category = 'LP Ottimo Intero'
-                elif status == 'optimal' and final_gap < THRESHOLD_GAP:
-                    category = 'Risolto con Tagli'
-                elif status == 'optimal':
-                    category = 'Limite Raggiunto (Gap Residuo)'
-                else:
-                    category = f'Non Risolto ({status})'
-                summary = {
-                    'instance_name': instance_name, 'cut_mode': mode,
-                    'initial_gap': initial_stats.get('relative_gap', 0),
-                    'final_gap': final_stats.get('relative_gap', 0),
-                    'gap_closure': initial_stats.get('relative_gap', 0) - final_stats.get('relative_gap', 0),
-                    'total_cuts': final_stats.get('n_cuts', 0),
-                    'total_iterations': final_stats.get('iterations', 0),
-                    'total_time_ms': final_stats.get('elapsed_time', 0),
-                    'final_status': final_stats.get('status', 'unknown'),
-                    'solution_category': category
-                }
-
+            summary = process_instance(file_path, mode)
+            if summary:
                 all_runs_summaries.append(summary)
-
-            except Exception as e:
-                print(f"\U0001F6AB Errore critico durante l'elaborazione di {file_path.name}: {e}")
-                traceback.print_exc()
 
     # Dopo aver eseguito tutto, salva il report CSV completo
     if all_runs_summaries:
@@ -272,6 +209,7 @@ def process_all_instances_all_modes():
         df_all_runs.to_csv(csv_path, index=False)
         print(f"\n\nReport CSV completo di tutte le modalità salvato in: {csv_path}")
         plot_combined_summary(csv_path)
+
 
 
 def main():
