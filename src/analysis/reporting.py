@@ -105,6 +105,7 @@ def plot_cuts_per_iteration(instance_stats: list[dict], output_file: Path):
     # Il primo valore (iterazione 0) sarà NaN, che riempiamo correttamente con 0.
     df['cuts_added'] = df['n_cuts'].diff().fillna(0)
 
+
     # Creazione del grafico
     plt.figure(figsize=(12, 7))
 
@@ -179,10 +180,9 @@ def plot_summary_results_category(df: pd.DataFrame, output_dir: Path):
 def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
     """
     Crea un grafico a barre divergente per mostrare l'efficienza dei tagli.
-    Versione robusta per evitare warning di layout.
+    Versione migliorata con scala percentuale più intuitiva.
     """
     df_plot = df.copy()
-
 
     if 'instance_name' not in df_plot.columns:
         print("Errore: la colonna 'instance_name' non è presente nel DataFrame per plot_gap_closure_efficiency.")
@@ -200,42 +200,81 @@ def plot_gap_closure_efficiency(df: pd.DataFrame, output_dir: Path):
     filtered_instance_count = len(df_plot)
     print(f"Info per grafico 'gap_efficiency': Filtrate {original_instance_count - filtered_instance_count} istanze già ottime. Grafico generato su {filtered_instance_count} istanze.")
 
+    # Calcola il gap iniziale assoluto
+    df_plot['initial_gap_absolute'] = df_plot['optimal_solution'] - df_plot['initial_lp_solution']
+
+    # Calcola il miglioramento assoluto ottenuto
+    df_plot['improvement_absolute'] = df_plot['final_lp_solution'] - df_plot['initial_lp_solution']
+
+    # Calcola la vera percentuale di gap chiuso
+    # Gestisce il caso in cui il gap iniziale sia zero per evitare divisioni per zero
+    df_plot['gap_closure_pct'] = 0.0
+    mask = df_plot['initial_gap_absolute'] > 1e-9 # Evita divisione per zero
+    df_plot.loc[mask, 'gap_closure_pct'] = \
+        (df_plot.loc[mask, 'improvement_absolute'] / df_plot.loc[mask, 'initial_gap_absolute']) * 100
+
+
     df_plot['clean_name'] = df_plot['instance_name'].apply(clean_instance_name)
-    df_plot['gap_closure_pct'] = df_plot['gap_closure'] * 100
-    df_plot = df_plot.sort_values('gap_closure_pct', ascending=False)
 
-    colors = ['forestgreen' if x >= 0 else 'crimson' for x in df_plot['gap_closure_pct']]
 
-    #altezza dinamica in base al numero di istanze
+    # Crea una scala di colori più intuitiva in base alla percentuale
+    cmap = plt.cm.RdYlGn  # Red-Yellow-Green colormap
+    norm = plt.Normalize(vmin=min(0, df_plot['gap_closure_pct'].min()),
+                         vmax=max(100, df_plot['gap_closure_pct'].max()))
+    colors = [cmap(norm(x)) for x in df_plot['gap_closure_pct']]
+
+    # Altezza dinamica in base al numero di istanze
     num_instances = len(df_plot)
     dynamic_height = max(12, num_instances * 0.35)
 
     # Creiamo la figura e l'asse esplicitamente per un miglior controllo
     fig, ax = plt.subplots(figsize=(16, dynamic_height))
 
-    ax.barh(df_plot['clean_name'], df_plot['gap_closure_pct'], color=colors)
+    # Crea le barre orizzontali
+    bars = ax.barh(df_plot['clean_name'], df_plot['gap_closure_pct'], color=colors)
 
-    current_mode = df_plot['cut_mode'].iloc[0] if not df_plot.empty else ""
-    ax.set_title(f'Efficienza dei Tagli ({current_mode}): Chiusura del Gap Relativo', fontsize=16, fontweight='bold')
-    ax.set_xlabel('Chiusura del Gap (%) [Positivo = Miglioramento]', fontsize=12)
-    ax.set_ylabel('Istanza del Problema', fontsize=12)
-    ax.grid(axis='x', linestyle='--', linewidth=0.5)
+    # Aggiungi una linea di riferimento a 0%
     ax.axvline(x=0, color='black', linewidth=0.8)
 
+    # Aggiungi linee di riferimento per intervalli significativi
+    for x in [25, 50, 75, 100]:
+        if x <= max(df_plot['gap_closure_pct'].max(), 100):
+            ax.axvline(x=x, color='gray', linestyle=':', alpha=0.6)
+            ax.text(x, -0.5, f"{x}%", ha='center', va='top', alpha=0.7)
+
+    current_mode = df_plot['cut_mode'].iloc[0] if not df_plot.empty else ""
+
+    # Titolo e etichette migliorate
+    ax.set_title(f'Efficienza dei Tagli ({current_mode}): Chiusura del Gap Relativo', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Percentuale di chiusura del gap rispetto al rilassamento LP iniziale', fontsize=12)
+    ax.set_ylabel('Istanza del Problema', fontsize=12)
+
+    # Griglia migliorata
+    ax.grid(axis='x', linestyle='--', linewidth=0.5)
+
+    # Aggiungi testo esplicativo sulla parte superiore del grafico
+    explanation = "100% = Gap completamente chiuso (ottimalità raggiunta)\n0% = Nessun miglioramento dal rilassamento LP"
+    ax.text(0.98, 0.98, explanation, transform=ax.transAxes, ha='right', va='top',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.7), fontsize=10)
+
+
+    # Assicurati che l'asse x mostri valori percentuali con simbolo %
+    from matplotlib.ticker import PercentFormatter
+    ax.xaxis.set_major_formatter(PercentFormatter())
+
+    ax.set_xlim(0,105)
     # Aggiungi etichette sulle barre
-    for index, value in enumerate(df_plot['gap_closure_pct']):
-        ha = 'left' if value >= 0 else 'right'
-        # Aggiustiamo la posizione del testo per non sovrapporsi alle barre
-        x_pos = value + (np.sign(value) * 0.5) if value != 0 else 0.5
-        ax.text(x_pos, index, f'{value:.2f}%', va='center', ha=ha, fontsize=8)
+    for bar in bars:
+        width = bar.get_width()
+        ax.text(width + 1, bar.get_y() + bar.get_height()/2, f'{width:.1f}%', va='center')
 
-
+    # Adatta il layout per accomodare tutte le etichette
     fig.subplots_adjust(left=0.3, right=0.95, top=0.95, bottom=0.05)
 
-
+    # Salva il grafico
     plot_path = output_dir / "_gap_efficiency.png"
-    plt.savefig(plot_path, dpi=300)
-    plt.close(fig) # Chiudiamo la figura esplicitamente
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
     print(f"Grafico efficienza per modalità '{current_mode}' salvato in: {plot_path}")
 
 

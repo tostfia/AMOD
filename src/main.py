@@ -36,6 +36,11 @@ def create_solution_summary(instance_name, mode, all_stats):
         'cut_mode': mode,
         'initial_gap': initial_gap,
         'final_gap': final_gap,
+
+        'optimal_solution': initial_stats.get('optimal_ilp'),
+        'initial_lp_solution': initial_stats.get('lp_solution'),
+        'final_lp_solution': final_stats.get('lp_solution'),
+
         'gap_closure': initial_gap - final_gap,
         'total_cuts': final_stats.get('n_cuts', 0),
         'total_iterations': final_stats.get('iterations', 0),
