@@ -242,7 +242,7 @@ class Gomory:
                         cuts_gfc.sort(key=lambda x: x.get('violation', 0), reverse=True)
 
                         len_gmi = len(cuts_gmi)
-                        len_gfc = len(cuts_gmi)
+                        len_gfc = len(cuts_gfc)
                         max_len= max(len_gmi, len_gfc)
                         for i in range(max_len):
                             if i < len_gmi:
